@@ -11,12 +11,13 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 COMPONENTS Widgets REQUIRED)
+find_package(Qt6 COMPONENTS Widgets OpenGL OpenGLWidgets REQUIRED)
 
 add_executable(geomTool
     src/main.cpp
     src/MainWindow.cpp
     src/CanvasWidget.cpp
+    src/CanvasRenderer.cpp
     src/GeometryStore.cpp
     src/Math3D.cpp
     src/SnapManager.cpp
@@ -36,11 +37,18 @@ add_executable(geomTool
     src/tools/MoveArcTool.cpp
 )
 
-target_link_libraries(geomTool PRIVATE Qt6::Widgets)
+target_link_libraries(geomTool PRIVATE
+    Qt6::Widgets
+    Qt6::OpenGL
+    Qt6::OpenGLWidgets
+)
 target_include_directories(geomTool PRIVATE src src/tools)
 
+# Qt6::OpenGL links the platform OpenGL library on every OS
+# (OpenGL32 on Windows, libGL on Linux, the OpenGL framework on macOS),
+# so no per-platform GL linking is needed here.
+
 if(APPLE)
-    target_link_libraries(geomTool PRIVATE "-framework OpenGL")
     set_target_properties(geomTool PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.kaige.geomTool"

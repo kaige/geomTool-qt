@@ -3,21 +3,38 @@
 #include "tools/ToolManager.h"
 #include "SnapManager.h"
 #include <QPainter>
+#include <QGuiApplication>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
 #include <cmath>
 #include <algorithm>
 
+namespace {
+// 2D point-in-triangle test, winding-independent (a triangle is "filled"
+// regardless of vertex order). Used for face-based hit testing.
+bool pointInTriangle(float px, float py,
+                     float ax, float ay, float bx, float by, float cx, float cy) {
+    auto s = [](float ppx, float ppy, float qax, float qay, float qbx, float qby) {
+        return (qax - ppx) * (qby - ppy) - (qbx - ppx) * (qay - ppy);
+    };
+    float d1 = s(px, py, ax, ay, bx, by);
+    float d2 = s(px, py, bx, by, cx, cy);
+    float d3 = s(px, py, cx, cy, ax, ay);
+    bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+    bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+    return !(hasNeg && hasPos);
+}
+} // namespace
+
 CanvasWidget* g_canvas = nullptr;
 
 CanvasWidget::CanvasWidget(QWidget* parent)
-    : QWidget(parent)
+    : QOpenGLWidget(parent)
 {
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
     setMinimumSize(400, 300);
-    setAttribute(Qt::WA_OpaquePaintEvent);
 
     snapManager = std::make_unique<SnapManager>();
     toolManager = std::make_unique<ToolManager>(this);
@@ -36,9 +53,26 @@ void CanvasWidget::setCanvasCursor(Qt::CursorShape shape) {
     setCursor(shape);
 }
 
-void CanvasWidget::resizeEvent(QResizeEvent* event) {
-    QWidget::resizeEvent(event);
-    camera.aspect = (float)width() / (float)height();
+// ============================================================
+// OpenGL setup
+// ============================================================
+
+void CanvasWidget::initializeGL() {
+    initializeOpenGLFunctions();
+
+    // We rely on draw order (painter's algorithm), not depth.
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    if (!renderer.initialize()) {
+        // Shader compile/link failure is reported through Qt's logging
+        // category; the canvas will render blank until resolved.
+    }
+}
+
+void CanvasWidget::resizeGL(int w, int h) {
+    camera.aspect = (float)w / (float)std::max(1, h);
 }
 
 QPointF CanvasWidget::worldToScreen(const Vec3& world) {
@@ -108,6 +142,22 @@ std::string CanvasWidget::hitTestShape(float sx, float sy) {
                 float px = s1x + t * dx, py = s1y + t * dy;
                 float dist = std::sqrt((sx - px)*(sx - px) + (sy - py)*(sy - py));
                 if (dist < threshold)
+                    return shape->id;
+            }
+
+            // Face hit-test: a click anywhere on a face (not just near an
+            // edge) also selects the shape. Faces are not rendered, so the
+            // wireframe and hidden dashed edges stay fully visible.
+            auto faces = GeometryFactory::create3DFaces(shape->type);
+            for (size_t j = 0; j + 2 < faces.size(); j += 3) {
+                Vec3 w0 = modelMat.transformPoint(faces[j]);
+                Vec3 w1 = modelMat.transformPoint(faces[j+1]);
+                Vec3 w2 = modelMat.transformPoint(faces[j+2]);
+                float ax, ay, bx, by, cx, cy;
+                if (!camera.project(w0, width(), height(), ax, ay)) continue;
+                if (!camera.project(w1, width(), height(), bx, by)) continue;
+                if (!camera.project(w2, width(), height(), cx, cy)) continue;
+                if (pointInTriangle(sx, sy, ax, ay, bx, by, cx, cy))
                     return shape->id;
             }
             continue;
@@ -218,17 +268,22 @@ void CanvasWidget::mousePressEvent(QMouseEvent* event) {
     mouseDown = true;
     mousePos = event->position();
     startMousePos = event->position();
-    toolManager->handleMouseDown(event->position(), event->modifiers());
+    // event->modifiers() omits Alt on Windows (WM_SYS* mouse messages), so
+    // merge with the live keyboard state to reliably detect Shift/Ctrl/Alt.
+    Qt::KeyboardModifiers mods = event->modifiers() | QGuiApplication::queryKeyboardModifiers();
+    toolManager->handleMouseDown(event->position(), mods);
 }
 
 void CanvasWidget::mouseMoveEvent(QMouseEvent* event) {
-    toolManager->handleMouseMove(event->position(), event->modifiers());
+    Qt::KeyboardModifiers mods = event->modifiers() | QGuiApplication::queryKeyboardModifiers();
+    toolManager->handleMouseMove(event->position(), mods);
     mousePos = event->position();
 }
 
 void CanvasWidget::mouseReleaseEvent(QMouseEvent* event) {
     mouseDown = false;
-    toolManager->handleMouseUp(event->position(), event->modifiers());
+    Qt::KeyboardModifiers mods = event->modifiers() | QGuiApplication::queryKeyboardModifiers();
+    toolManager->handleMouseUp(event->position(), mods);
 }
 
 void CanvasWidget::wheelEvent(QWheelEvent* event) {
@@ -238,88 +293,106 @@ void CanvasWidget::wheelEvent(QWheelEvent* event) {
 }
 
 void CanvasWidget::keyPressEvent(QKeyEvent* event) {
+    // Delete the selected shape. Handled here (not in a tool) so it works
+    // regardless of which tool is currently active.
+    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
+        if (!g_store.selectedShapeId.empty()) {
+            g_store.removeShape(g_store.selectedShapeId);
+            return;
+        }
+    }
     toolManager->handleKeyDown(event);
 }
 
 // ============================================================
 // Rendering
+//
+// paintGL draws two layers:
+//   1. GL layer    : grid + shapes + tool preview lines (OpenGL)
+//   2. Overlay     : selection handles + snap marker + axis gizmo (QPainter)
+// QPainter::beginNativePainting() / endNativePainting() bracket the raw
+// GL calls so both engines share the framebuffer safely.
 // ============================================================
 
-void CanvasWidget::paintEvent(QPaintEvent*) {
+void CanvasWidget::paintGL() {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // Background
-    painter.fillRect(rect(), Qt::white);
+    // --- GL layer -------------------------------------------------
+    painter.beginNativePainting();
 
-    // Update aspect
+    // Viewport must cover the full physical framebuffer; on high-DPI
+    // displays width()/height() are logical and the FBO is physical.
+    const qreal dpr = devicePixelRatioF();
+    glViewport(0, 0, int(width() * dpr), int(height() * dpr));
+
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
     camera.aspect = (float)width() / std::max(1, height());
 
-    // Draw grid
-    drawGrid(painter);
+    renderer.beginFrame(width(), height());
+    drawGrid();
+    drawShapes();
+    drawTempLines();
+    renderer.endFrame();
 
-    // Draw shapes
-    drawShapes(painter);
+    painter.endNativePainting();
 
-    // Draw endpoints for selected shape
+    // --- QPainter overlay ----------------------------------------
     if (!g_store.selectedShapeId.empty()) {
         BaseShape* sel = g_store.getSelectedShape();
         if (sel) drawEndpoints(painter, sel);
     }
 
-    // Draw temp lines (from tools)
-    drawTempLines(painter);
-
-    // Draw snap marker
     drawSnapMarker(painter);
-
-    // Draw axes overlay
     drawAxes(painter);
 }
 
-void CanvasWidget::drawGrid(QPainter& painter) {
-    // Draw a subtle grid on the Z=0 plane
+void CanvasWidget::drawGrid() {
+    // Subtle grid on the Z=0 plane
     float gridSize = 10.0f;
     int numLines = 20;
 
-    painter.setPen(QPen(QColor(240, 240, 240), 1));
+    QColor gridColor(240, 240, 240);
+    QColor axisColor(220, 220, 220);
+
     for (int i = -numLines; i <= numLines; i++) {
         float x = (float)i;
-        Vec3 p1 = {x, -gridSize, 0};
-        Vec3 p2 = {x, gridSize, 0};
-        QPointF s1 = worldToScreen(p1);
-        QPointF s2 = worldToScreen(p2);
-        painter.drawLine(s1, s2);
+        QPointF s1 = worldToScreen({x, -gridSize, 0});
+        QPointF s2 = worldToScreen({x, gridSize, 0});
+        renderer.addLine(s1, s2, gridColor, 0.5f, false);
 
-        Vec3 p3 = {-gridSize, x, 0};
-        Vec3 p4 = {gridSize, x, 0};
-        QPointF s3 = worldToScreen(p3);
-        QPointF s4 = worldToScreen(p4);
-        painter.drawLine(s3, s4);
+        QPointF s3 = worldToScreen({-gridSize, x, 0});
+        QPointF s4 = worldToScreen({gridSize, x, 0});
+        renderer.addLine(s3, s4, gridColor, 0.5f, false);
     }
 
-    // Draw axes lines on Z=0 plane
-    painter.setPen(QPen(QColor(220, 220, 220), 2));
+    // Axes lines on Z=0 plane
     QPointF origin = worldToScreen({0, 0, 0});
-    QPointF xAxis = worldToScreen({gridSize, 0, 0});
-    QPointF yAxis = worldToScreen({0, gridSize, 0});
-    painter.drawLine(origin, xAxis);
-    painter.drawLine(origin, yAxis);
+    QPointF xAxis  = worldToScreen({gridSize, 0, 0});
+    QPointF yAxis  = worldToScreen({0, gridSize, 0});
+    renderer.addLine(origin, xAxis, axisColor, 1.0f, false);
+    renderer.addLine(origin, yAxis, axisColor, 1.0f, false);
 }
 
-void CanvasWidget::drawShapes(QPainter& painter) {
+void CanvasWidget::drawShapes() {
     for (auto& shape : g_store.shapes) {
         if (!shape->visible) continue;
-        drawShape(painter, shape.get());
+        drawShape(shape.get());
     }
 }
 
-void CanvasWidget::drawShape(QPainter& painter, BaseShape* shape) {
+void CanvasWidget::drawShape(BaseShape* shape) {
     bool isSelected = (shape->id == g_store.selectedShapeId);
     float r, g, b;
     parseColor(shape->color, r, g, b);
     QColor shapeColor((int)(r*255), (int)(g*255), (int)(b*255));
     QColor drawColor = isSelected ? QColor(255, 107, 53) : shapeColor;
+
+    // QPainter line width 2 -> half width 1px; unselected 3D wireframe 1.5 -> 0.75px
+    const float hwLine = 1.0f;
+    const float hwWire = isSelected ? 1.0f : 0.75f;
 
     Mat4 modelMat = Mat4::modelMatrix(shape->position, shape->rotation, shape->scale);
 
@@ -327,19 +400,13 @@ void CanvasWidget::drawShape(QPainter& painter, BaseShape* shape) {
         auto* ls = static_cast<LineSegmentShape*>(shape);
         auto pts = GeometryFactory::createLineSegmentPoints(ls);
         if (pts.size() < 2) return;
-        QPointF s1 = worldToScreen(pts[0]);
-        QPointF s2 = worldToScreen(pts[1]);
-        painter.setPen(QPen(drawColor, 2));
-        painter.drawLine(s1, s2);
+        renderer.addLine(worldToScreen(pts[0]), worldToScreen(pts[1]), drawColor, hwLine, false);
 
     } else if (shape->type == ShapeType::CircularArc) {
         auto* arc = static_cast<CircularArcShape*>(shape);
         auto pts = GeometryFactory::createArcPoints(arc);
-        painter.setPen(QPen(drawColor, 2));
         for (size_t i = 0; i + 1 < pts.size(); i++) {
-            QPointF s1 = worldToScreen(pts[i]);
-            QPointF s2 = worldToScreen(pts[i+1]);
-            painter.drawLine(s1, s2);
+            renderer.addLine(worldToScreen(pts[i]), worldToScreen(pts[i+1]), drawColor, hwLine, false);
         }
 
     } else if (shape->type == ShapeType::Circle) {
@@ -347,7 +414,6 @@ void CanvasWidget::drawShape(QPainter& painter, BaseShape* shape) {
         Vertex* cv = g_store.getVertexById(circ->centerVertexId);
         if (!cv) return;
         int segs = 64;
-        painter.setPen(QPen(drawColor, 2));
         QPointF prev = worldToScreen({
             cv->position.x + circ->radius, cv->position.y, 0
         });
@@ -359,13 +425,11 @@ void CanvasWidget::drawShape(QPainter& painter, BaseShape* shape) {
                 0
             };
             QPointF cur = worldToScreen(p);
-            painter.drawLine(prev, cur);
+            renderer.addLine(prev, cur, drawColor, hwLine, false);
             prev = cur;
         }
 
     } else if (shape->type == ShapeType::Rectangle || shape->type == ShapeType::Triangle || shape->type == ShapeType::Polygon) {
-        // All three share vertexIds via PolygonShape layout (RectangleShape/TriangleShape inherit from BaseShape with their own vertexIds)
-        // Use reinterpret since they all have vertexIds at compatible layout
         std::vector<std::string> vertexIds;
         if (shape->type == ShapeType::Rectangle)
             vertexIds = static_cast<RectangleShape*>(shape)->vertexIds;
@@ -380,26 +444,69 @@ void CanvasWidget::drawShape(QPainter& painter, BaseShape* shape) {
             if (v) screenPts.push_back(worldToScreen(v->position));
         }
         if (screenPts.size() >= 2) {
-            painter.setPen(QPen(drawColor, 2));
             for (size_t i = 0; i < screenPts.size(); i++) {
-                painter.drawLine(screenPts[i], screenPts[(i+1) % screenPts.size()]);
+                renderer.addLine(screenPts[i], screenPts[(i+1) % screenPts.size()], drawColor, hwLine, false);
             }
         }
 
     } else {
-        // 3D shape - draw wireframe edges
+        // 3D shape - wireframe with hidden-line styling.
+        // For the cube (flat faces) we use proper back-face culling: an edge
+        // is hidden iff both faces meeting at it are back-facing, which yields
+        // exactly the 3 hidden edges of an axonometric cube. For the centered
+        // convex quadrics (sphere/cylinder/cone/torus) the edge midpoint being
+        // behind the object center is the correct hidden test.
         auto edges = GeometryFactory::create3DEdges(shape->type);
-        painter.setPen(QPen(drawColor, isSelected ? 2 : 1.5));
+        const Vec3 center = shape->position;
+        const Vec3 forward = camera.getForward();
+        const QColor hiddenColor((drawColor.red()   + 180) / 2,
+                                 (drawColor.green() + 180) / 2,
+                                 (drawColor.blue()  + 180) / 2);
+
+        // Per-edge pair of adjacent outward face normals (local space) for the
+        // cube, in createBoxEdges() order.
+        static const Vec3 cubeFaceN[12][2] = {
+            {{0,-1,0},{0,0,-1}}, {{0,0,-1},{1,0,0}}, {{0,0,-1},{0,1,0}}, {{0,0,-1},{-1,0,0}},
+            {{0,0,1},{0,-1,0}},  {{0,0,1},{1,0,0}},  {{0,0,1},{0,1,0}},  {{0,0,1},{-1,0,0}},
+            {{-1,0,0},{0,-1,0}}, {{1,0,0},{0,-1,0}}, {{1,0,0},{0,1,0}},  {{-1,0,0},{0,1,0}},
+        };
 
         for (size_t j = 0; j < edges.size(); j += 2) {
             Vec3 p1 = modelMat.transformPoint(edges[j]);
             Vec3 p2 = modelMat.transformPoint(edges[j+1]);
-            QPointF s1 = worldToScreen(p1);
-            QPointF s2 = worldToScreen(p2);
-            painter.drawLine(s1, s2);
+
+            bool hidden;
+            if (shape->type == ShapeType::Cube) {
+                size_t e = j / 2;
+                // Transform face normals into world space (rotation; uniform scale keeps direction).
+                Vec3 n0 = modelMat.transformDir(cubeFaceN[e][0]);
+                Vec3 n1 = modelMat.transformDir(cubeFaceN[e][1]);
+                // Back-facing: outward normal points along the view direction.
+                hidden = (n0.dot(forward) > 0.0f) && (n1.dot(forward) > 0.0f);
+            } else {
+                Vec3 mid = (p1 + p2) * 0.5f;
+                hidden = (mid - center).dot(forward) > 0.0f;
+            }
+
+            renderer.addLine(worldToScreen(p1), worldToScreen(p2),
+                             hidden ? hiddenColor : drawColor, hwWire, hidden);
         }
     }
 }
+
+void CanvasWidget::drawTempLines() {
+    for (auto& tl : tempLines) {
+        if (tl.points.size() < 2) continue;
+        for (size_t i = 0; i + 1 < tl.points.size(); i++) {
+            renderer.addLine(worldToScreen(tl.points[i]), worldToScreen(tl.points[i+1]),
+                             tl.color, 1.0f, tl.dashed);
+        }
+    }
+}
+
+// ============================================================
+// QPainter overlays
+// ============================================================
 
 void CanvasWidget::drawEndpoints(QPainter& painter, BaseShape* shape) {
     float markerSize = 8.0f;
@@ -464,24 +571,8 @@ void CanvasWidget::drawSnapMarker(QPainter& painter) {
     }
 }
 
-void CanvasWidget::drawTempLines(QPainter& painter) {
-    for (auto& tl : tempLines) {
-        if (tl.points.size() < 2) continue;
-        if (tl.dashed) {
-            painter.setPen(QPen(tl.color, 2, Qt::DashLine));
-        } else {
-            painter.setPen(QPen(tl.color, 2));
-        }
-        for (size_t i = 0; i + 1 < tl.points.size(); i++) {
-            QPointF s1 = worldToScreen(tl.points[i]);
-            QPointF s2 = worldToScreen(tl.points[i+1]);
-            painter.drawLine(s1, s2);
-        }
-    }
-}
-
 void CanvasWidget::drawAxes(QPainter& painter) {
-    // Draw small axes indicator in bottom-left corner
+    // Small axes indicator in bottom-left corner
     int size = 80;
     int margin = 10;
     int cx = margin + size / 2;
@@ -494,16 +585,13 @@ void CanvasWidget::drawAxes(QPainter& painter) {
     painter.drawEllipse(QPointF(cx, cy), size/2.0, size/2.0);
 
     // Get camera direction to project axes
-    Vec3 camPos = camera.getPosition();
     Vec3 forward = camera.getForward();
     Vec3 right = camera.getRight();
     Vec3 up = camera.getUp();
 
-    // Project axis directions
     auto projectAxis = [&](const Vec3& axisDir, const QColor& color, const QString& label) {
         float xProj = axisDir.dot(right);
         float yProj = axisDir.dot(up);
-        // Depth for sorting (not used for visual but conceptually)
         float depth = axisDir.dot(forward);
 
         float px = cx + xProj * axisLen;

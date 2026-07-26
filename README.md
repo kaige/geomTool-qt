@@ -22,7 +22,7 @@
 - **语言**: C++17
 - **框架**: Qt 6 (Widgets)
 - **构建**: CMake 3.16+
-- **渲染**: QPainter 自定义 2D 渲染引擎（实现 3D 正交投影、线框渲染）
+- **渲染**: OpenGL 3.3 Core 可编程管线（QOpenGLWidget + GLSL shader），几何经 CPU 正交投影后由 GPU 光栅化；少量屏幕空间叠加（选择手柄、捕捉标记、坐标轴 gizmo）用 QPainter 合成，跨平台（Windows / Linux / macOS）
 
 ## 项目结构
 
@@ -32,7 +32,8 @@ geomTool-qt/
 ├── src/
 │   ├── main.cpp            # 程序入口
 │   ├── MainWindow.*        # 主窗口
-│   ├── CanvasWidget.*      # 3D 画布（渲染 + 交互）
+│   ├── CanvasWidget.*      # 3D 画布（QOpenGLWidget，渲染 + 交互）
+│   ├── CanvasRenderer.*    # OpenGL 线段渲染器（GLSL shader + VBO/VAO）
 │   ├── GeometryStore.*     # 状态管理（对应 MobX store）
 │   ├── GeometryFactory.h   # 几何体线框生成
 │   ├── Camera.h            # 正交相机 + 轨道控制

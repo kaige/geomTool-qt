@@ -1,22 +1,31 @@
 #pragma once
-#include <QWidget>
-#include <QPixmap>
+#include <QOpenGLWidget>
+#include <QOpenGLFunctions_3_3_Core>
 #include <QPointF>
 #include "Camera.h"
 #include "Types.h"
 #include "Math3D.h"
 #include "I18n.h"
 #include "GeometryFactory.h"
+#include "CanvasRenderer.h"
 #include "tools/BaseTool.h"
 
 class ToolManager;
 class SnapManager;
 
 // ============================================================
-// CanvasWidget - Custom QWidget that renders all geometry
-// Uses QPainter for 2D rendering of 3D-projected geometry
+// CanvasWidget - OpenGL-backed canvas that renders all geometry.
+//
+// Geometry (grid, shapes, tool preview lines) is drawn through a
+// programmable OpenGL 3.3 Core pipeline (see CanvasRenderer).
+// Small screen-space overlays (selection handles, snap markers,
+// the axis gizmo with its text labels) are composited on top with
+// QPainter, which QOpenGLWidget supports natively.
+//
+// Projection to screen pixels stays on the CPU (Camera::project),
+// so GL geometry and QPainter overlays are always pixel-aligned.
 // ============================================================
-class CanvasWidget : public QWidget {
+class CanvasWidget : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core {
     Q_OBJECT
 public:
     explicit CanvasWidget(QWidget* parent = nullptr);
@@ -85,22 +94,30 @@ public:
     void refresh();
 
 protected:
-    void paintEvent(QPaintEvent* event) override;
+    // QOpenGLWidget rendering hooks
+    void initializeGL() override;
+    void resizeGL(int w, int h) override;
+    void paintGL() override;
+
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
-    void resizeEvent(QResizeEvent* event) override;
 
 private:
-    void drawAxes(QPainter& painter);
-    void drawGrid(QPainter& painter);
-    void drawShapes(QPainter& painter);
-    void drawShape(QPainter& painter, BaseShape* shape);
+    CanvasRenderer renderer;
+
+    // GL-layer geometry (projected to screen px, drawn via OpenGL)
+    void drawGrid();
+    void drawShapes();
+    void drawShape(BaseShape* shape);
+    void drawTempLines();
+
+    // QPainter overlays (drawn on top of the GL layer)
     void drawEndpoints(QPainter& painter, BaseShape* shape);
     void drawSnapMarker(QPainter& painter);
-    void drawTempLines(QPainter& painter);
+    void drawAxes(QPainter& painter);
 };
 
 // Global canvas pointer for toolbar access

@@ -117,7 +117,8 @@ void SelectTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidg
     if (!cv->isDraggingObject && !cv->isDraggingEndpoint) {
         float dx = (pos.x() - cv->mousePos.x()) / cv->width();
         float dy = (pos.y() - cv->mousePos.y()) / cv->height();
-        cv->camera.pan(dx, -dy);
+        // Drag-to-pan: content follows the mouse in both axes.
+        cv->camera.pan(dx, dy);
         cv->update();
     }
 }

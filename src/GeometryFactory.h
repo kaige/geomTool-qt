@@ -75,6 +75,21 @@ struct GeometryFactory {
         }
     }
 
+    // Generate triangle faces (every 3 consecutive points = 1 triangle) for
+    // 3D shapes, used for face-based hit testing. Triangle winding is not
+    // significant - hit testing treats a triangle as filled regardless of
+    // orientation, so the faces only need to cover the surface.
+    static std::vector<Vec3> create3DFaces(ShapeType type) {
+        switch (type) {
+            case ShapeType::Sphere:   return createSphereFaces(1.0f, 16, 12);
+            case ShapeType::Cube:     return createBoxFaces(1.0f);
+            case ShapeType::Cylinder: return createCylinderFaces(1.0f, 1.0f, 2.0f, 16);
+            case ShapeType::Cone:     return createConeFaces(1.0f, 2.0f, 16);
+            case ShapeType::Torus:    return createTorusFaces(1.0f, 0.4f, 16, 24);
+            default: return {};
+        }
+    }
+
     // --- Primitive edge generators ---
     static std::vector<Vec3> createSphereEdges(float r, int segH, int segV) {
         std::vector<Vec3> edges;
@@ -209,5 +224,96 @@ struct GeometryFactory {
             }
         }
         return edges;
+    }
+
+    // --- Primitive face generators (triangles) ---
+    static std::vector<Vec3> createBoxFaces(float size) {
+        float s = size / 2;
+        Vec3 c[8] = {
+            {-s,-s,-s}, { s,-s,-s}, { s, s,-s}, {-s, s,-s},
+            {-s,-s, s}, { s,-s, s}, { s, s, s}, {-s, s, s}
+        };
+        std::vector<Vec3> f;
+        auto quad = [&](int a, int b, int cc, int d) {
+            f.push_back(c[a]); f.push_back(c[b]); f.push_back(c[cc]);
+            f.push_back(c[a]); f.push_back(c[cc]); f.push_back(c[d]);
+        };
+        quad(0,1,2,3); // -z
+        quad(4,5,6,7); // +z
+        quad(0,1,5,4); // -y
+        quad(3,2,6,7); // +y
+        quad(0,3,7,4); // -x
+        quad(1,2,6,5); // +x
+        return f;
+    }
+
+    static std::vector<Vec3> createSphereFaces(float r, int segH, int segV) {
+        std::vector<Vec3> f;
+        auto P = [&](float phi, float a) {
+            return Vec3(r * std::sin(phi) * std::cos(a),
+                        r * std::cos(phi),
+                        r * std::sin(phi) * std::sin(a));
+        };
+        for (int j = 0; j < segV; j++) {
+            float phi1 = M_PI * j / segV, phi2 = M_PI * (j + 1) / segV;
+            for (int i = 0; i < segH; i++) {
+                float a1 = 2 * M_PI * i / segH, a2 = 2 * M_PI * (i + 1) / segH;
+                Vec3 p00 = P(phi1, a1), p10 = P(phi1, a2), p11 = P(phi2, a2), p01 = P(phi2, a1);
+                f.push_back(p00); f.push_back(p10); f.push_back(p11);
+                f.push_back(p00); f.push_back(p11); f.push_back(p01);
+            }
+        }
+        return f;
+    }
+
+    static std::vector<Vec3> createCylinderFaces(float rTop, float rBot, float h, int seg) {
+        std::vector<Vec3> f;
+        float halfH = h / 2;
+        Vec3 Cb(0, -halfH, 0), Ct(0, halfH, 0);
+        for (int i = 0; i < seg; i++) {
+            float a1 = 2 * M_PI * i / seg, a2 = 2 * M_PI * (i + 1) / seg;
+            Vec3 b1(rBot * std::cos(a1), -halfH, rBot * std::sin(a1));
+            Vec3 b2(rBot * std::cos(a2), -halfH, rBot * std::sin(a2));
+            Vec3 t1(rTop * std::cos(a1),  halfH, rTop * std::sin(a1));
+            Vec3 t2(rTop * std::cos(a2),  halfH, rTop * std::sin(a2));
+            f.push_back(Cb); f.push_back(b1); f.push_back(b2);    // bottom cap
+            f.push_back(Ct); f.push_back(t2); f.push_back(t1);    // top cap
+            f.push_back(b1); f.push_back(b2); f.push_back(t2);    // side
+            f.push_back(b1); f.push_back(t2); f.push_back(t1);
+        }
+        return f;
+    }
+
+    static std::vector<Vec3> createConeFaces(float r, float h, int seg) {
+        std::vector<Vec3> f;
+        float halfH = h / 2;
+        Vec3 apex(0, halfH, 0), Cb(0, -halfH, 0);
+        for (int i = 0; i < seg; i++) {
+            float a1 = 2 * M_PI * i / seg, a2 = 2 * M_PI * (i + 1) / seg;
+            Vec3 b1(r * std::cos(a1), -halfH, r * std::sin(a1));
+            Vec3 b2(r * std::cos(a2), -halfH, r * std::sin(a2));
+            f.push_back(Cb);   f.push_back(b1); f.push_back(b2);   // bottom cap
+            f.push_back(apex); f.push_back(b2); f.push_back(b1);   // side
+        }
+        return f;
+    }
+
+    static std::vector<Vec3> createTorusFaces(float R, float r, int segMinor, int segMajor) {
+        std::vector<Vec3> f;
+        auto P = [&](float u, float v) {
+            return Vec3((R + r * std::cos(v)) * std::cos(u),
+                        r * std::sin(v),
+                        (R + r * std::cos(v)) * std::sin(u));
+        };
+        for (int i = 0; i < segMajor; i++) {
+            float u1 = 2 * M_PI * i / segMajor, u2 = 2 * M_PI * (i + 1) / segMajor;
+            for (int j = 0; j < segMinor; j++) {
+                float v1 = 2 * M_PI * j / segMinor, v2 = 2 * M_PI * (j + 1) / segMinor;
+                Vec3 p00 = P(u1, v1), p10 = P(u2, v1), p11 = P(u2, v2), p01 = P(u1, v2);
+                f.push_back(p00); f.push_back(p10); f.push_back(p11);
+                f.push_back(p00); f.push_back(p11); f.push_back(p01);
+            }
+        }
+        return f;
     }
 };
