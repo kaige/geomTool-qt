@@ -471,6 +471,70 @@ void CanvasWidget::drawShape(BaseShape* shape) {
             {{-1,0,0},{0,-1,0}}, {{1,0,0},{0,-1,0}}, {{1,0,0},{0,1,0}},  {{-1,0,0},{0,1,0}},
         };
 
+        // --- Cylinder rendering -------------------------------------
+        // Two different rules by region:
+        //  * Side (vertical): silhouette rule — only the two outline lines
+        //    where side visibility flips are drawn (solid).
+        //  * Top/bottom rims: cube-style — every segment is drawn; dashed
+        //    only when BOTH adjacent faces (cap + side quad) are back-facing,
+        //    solid as soon as either face is visible.
+        if (shape->type == ShapeType::Cylinder) {
+            constexpr int seg = 16;
+            const float rTop = 1.0f, rBot = 1.0f, h = 2.0f;
+            const float halfH = h * 0.5f;
+            const Vec3 fwd = forward;
+
+            // Cylinder local axes in world space (rotation only; uniform
+            // scale leaves directions valid).
+            const float A = modelMat.transformDir({1, 0, 0}).dot(fwd); // local X
+            const float B = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z
+            const float C = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y (axis)
+
+            // Side face with outward normal n(a) = cos(a)*X + sin(a)*Z is
+            // front-facing (visible) iff n·fwd < 0.
+            auto sideVisible = [&](float a) {
+                return std::cos(a) * A + std::sin(a) * B < 0.0f;
+            };
+            const bool topVis = (C < 0.0f);  // top cap, outward normal +Y
+            const bool botVis = (C > 0.0f);  // bottom cap, outward normal -Y
+
+            auto localPt = [&](float a, float y, float r) {
+                return modelMat.transformPoint({r * std::cos(a), y, r * std::sin(a)});
+            };
+
+            // Top & bottom rim segments: cube-style. A segment is hidden
+            // (dashed) iff both its adjacent faces — the cap and the side
+            // quad — are back-facing; otherwise solid.
+            for (int i = 0; i < seg; ++i) {
+                float a1 = 2.0f * M_PI * i / seg;
+                float a2 = 2.0f * M_PI * (i + 1) / seg;
+                bool sv = sideVisible((a1 + a2) * 0.5f);
+
+                bool topHidden = !topVis && !sv;
+                Vec3 tp1 = localPt(a1,  halfH, rTop), tp2 = localPt(a2,  halfH, rTop);
+                renderer.addLine(worldToScreen(tp1), worldToScreen(tp2),
+                                 topHidden ? hiddenColor : drawColor, hwWire, topHidden);
+
+                bool botHidden = !botVis && !sv;
+                Vec3 bp1 = localPt(a1, -halfH, rBot), bp2 = localPt(a2, -halfH, rBot);
+                renderer.addLine(worldToScreen(bp1), worldToScreen(bp2),
+                                 botHidden ? hiddenColor : drawColor, hwWire, botHidden);
+            }
+
+            // Two vertical silhouette edges where side visibility flips:
+            //   cos(a)*A + sin(a)*B = 0  =>  a = atan2(B, A) ± π/2.
+            // Skipped when looking straight down the axis (no side silhouette).
+            if (A * A + B * B > 1e-6f) {
+                float phi = std::atan2(B, A);
+                float sil[2] = { phi + float(M_PI_2), phi - float(M_PI_2) };
+                for (float a : sil) {
+                    Vec3 p1 = localPt(a, -halfH, rBot), p2 = localPt(a, halfH, rTop);
+                    renderer.addLine(worldToScreen(p1), worldToScreen(p2), drawColor, hwWire, false);
+                }
+            }
+            return;
+        }
+
         for (size_t j = 0; j < edges.size(); j += 2) {
             Vec3 p1 = modelMat.transformPoint(edges[j]);
             Vec3 p2 = modelMat.transformPoint(edges[j+1]);
