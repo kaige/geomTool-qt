@@ -7,6 +7,8 @@
 #include <QVBoxLayout>
 #include <QStyle>
 #include <QPainter>
+#include <QFile>
+#include <QSvgRenderer>
 
 ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     : QWidget(parent), mainWindow(mw)
@@ -41,23 +43,45 @@ ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     retranslateUi();
 }
 
-QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString& iconColor) {
+QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& color) {
+    // Load the SVG from Qt resources, substitute the requested stroke color
+    // (the source icons use stroke="currentColor"), and rasterize via QSvgRenderer.
+    QFile file(":/icons/" + iconName + ".svg");
+    if (!file.open(QIODevice::ReadOnly))
+        return QIcon();
+
+    QString svg = QString::fromUtf8(file.readAll());
+    svg.replace(QStringLiteral("currentColor"), color);
+
+    QSvgRenderer renderer(svg.toUtf8());
+    if (!renderer.isValid())
+        return QIcon();
+
+    const qreal dpr = 2.0;          // render at 2x for crisp HiDPI output
+    const int logical = 36;
+    const int px = int(logical * dpr);
+
+    QPixmap pixmap(px, px);
+    pixmap.setDevicePixelRatio(dpr);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    renderer.render(&painter);
+    painter.end();
+
+    return QIcon(pixmap);
+}
+
+QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString& iconName, const QString& iconColor) {
     auto* btn = new QToolButton;
     btn->setText(text);
     btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     btn->setFixedSize(70, 60);
     btn->setCheckable(true);
 
-    // Create a colored circle as icon
-    QPixmap pix(36, 36);
-    pix.fill(Qt::transparent);
-    QPainter p(&pix);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setBrush(QColor(iconColor));
-    p.setPen(QPen(QColor(50, 50, 50), 1));
-    p.drawEllipse(4, 4, 28, 28);
-    p.end();
-    btn->setIcon(QIcon(pix));
+    btn->setIcon(makeSvgIcon(iconName, iconColor));
     btn->setIconSize(QSize(36, 36));
 
     return btn;
@@ -69,13 +93,13 @@ void ToolbarWidget::setupCreateTab() {
     layout->setSpacing(4);
     layout->addStretch();
 
-    btnSphere = createToolButton("", "#4FC3F7");
-    btnCube = createToolButton("", "#81C784");
-    btnCylinder = createToolButton("", "#FFB74D");
-    btnCone = createToolButton("", "#A1887F");
-    btnTorus = createToolButton("", "#BA68C8");
-    btnLineSegment = createToolButton("", "#0078d4");
-    btnCircularArc = createToolButton("", "#E8804D");
+    btnSphere = createToolButton("", "sphere", "#4FC3F7");
+    btnCube = createToolButton("", "cube", "#81C784");
+    btnCylinder = createToolButton("", "cylinder", "#FFB74D");
+    btnCone = createToolButton("", "cone", "#A1887F");
+    btnTorus = createToolButton("", "torus", "#BA68C8");
+    btnLineSegment = createToolButton("", "line", "#0078d4");
+    btnCircularArc = createToolButton("", "arc", "#E8804D");
 
     layout->addWidget(btnSphere);
     layout->addWidget(btnCube);
@@ -125,8 +149,8 @@ void ToolbarWidget::setupManageTab() {
     layout->setSpacing(4);
     layout->addStretch();
 
-    btnDeleteSelected = createToolButton("", "#EF5350");
-    btnClearAll = createToolButton("", "#FF7043");
+    btnDeleteSelected = createToolButton("", "delete", "#EF5350");
+    btnClearAll = createToolButton("", "clear", "#FF7043");
 
     layout->addWidget(btnDeleteSelected);
     layout->addWidget(btnClearAll);

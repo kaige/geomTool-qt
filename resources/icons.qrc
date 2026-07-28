@@ -1,0 +1,13 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/sphere.svg</file>
+        <file>icons/cube.svg</file>
+        <file>icons/cylinder.svg</file>
+        <file>icons/cone.svg</file>
+        <file>icons/torus.svg</file>
+        <file>icons/line.svg</file>
+        <file>icons/arc.svg</file>
+        <file>icons/delete.svg</file>
+        <file>icons/clear.svg</file>
+    </qresource>
+</RCC>

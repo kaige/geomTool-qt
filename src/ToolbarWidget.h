@@ -43,6 +43,7 @@ private:
     void setupLanguageSelector();
     void retranslateUi();
 
-    QToolButton* createToolButton(const QString& text, const QString& iconColor);
+    QToolButton* createToolButton(const QString& text, const QString& iconName, const QString& iconColor);
+    QIcon makeSvgIcon(const QString& iconName, const QString& color);
     void updateButtonStates();
 };

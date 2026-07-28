@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 COMPONENTS Widgets OpenGL OpenGLWidgets REQUIRED)
+find_package(Qt6 COMPONENTS Widgets OpenGL OpenGLWidgets Svg REQUIRED)
 
 add_executable(geomTool
     src/main.cpp
@@ -35,12 +35,14 @@ add_executable(geomTool
     src/tools/MoveLineEndpointTool.cpp
     src/tools/MoveArcEndpointTool.cpp
     src/tools/MoveArcTool.cpp
+    resources/icons.qrc
 )
 
 target_link_libraries(geomTool PRIVATE
     Qt6::Widgets
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Svg
 )
 target_include_directories(geomTool PRIVATE src src/tools)
 
