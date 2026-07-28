@@ -78,11 +78,11 @@ QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString&
     auto* btn = new QToolButton;
     btn->setText(text);
     btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    btn->setFixedSize(70, 60);
+    btn->setFixedSize(76, 76);
     btn->setCheckable(true);
 
     btn->setIcon(makeSvgIcon(iconName, iconColor));
-    btn->setIconSize(QSize(36, 36));
+    btn->setIconSize(QSize(32, 32));
 
     return btn;
 }
