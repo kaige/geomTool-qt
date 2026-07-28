@@ -2,7 +2,6 @@
 #include <QWidget>
 #include <QTableWidget>
 #include <QLabel>
-#include <QPushButton>
 
 class MainWindow;
 
@@ -16,5 +15,6 @@ private:
     MainWindow* mainWindow;
     QLabel* headerLabel;
     QTableWidget* table;
+    QLabel* emptyLabel;
     void retranslateUi();
 };

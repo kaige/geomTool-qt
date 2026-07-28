@@ -7,7 +7,7 @@
 StatusBarWidget::StatusBarWidget(MainWindow* mw, QWidget* parent)
     : QWidget(parent), mainWindow(mw)
 {
-    setFixedHeight(32);
+    setFixedHeight(36);
     setStyleSheet(
         "StatusBarWidget { background-color: #f3f2f1; border-top: 1px solid #e1dfdd; }"
         "QLabel { color: #666; font-size: 12px; }"
@@ -15,6 +15,7 @@ StatusBarWidget::StatusBarWidget(MainWindow* mw, QWidget* parent)
 
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(16, 0, 16, 0);
+    layout->setSpacing(24);
 
     leftLabel = new QLabel;
     centerLabel = new QLabel;

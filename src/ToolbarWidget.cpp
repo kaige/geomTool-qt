@@ -20,6 +20,12 @@ ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     // Tab bar
     tabs = new QTabWidget;
     tabs->setDocumentMode(true);
+    // Give tab headers more breathing room
+    tabs->setStyleSheet(
+        "QTabBar::tab { padding: 6px 16px; font-size: 14px; }"
+        "QTabBar::tab:selected { color: #0078d4; }"
+        "QTabWidget::pane { border: none; border-top: 1px solid #e1dfdd; }"
+    );
 
     createTab = new QWidget;
     manageTab = new QWidget;
@@ -36,7 +42,7 @@ ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     setupLanguageSelector();
     auto* cornerWidget = new QWidget;
     auto* cornerLayout = new QHBoxLayout(cornerWidget);
-    cornerLayout->setContentsMargins(4, 0, 8, 0);
+    cornerLayout->setContentsMargins(4, 0, 12, 0);
     cornerLayout->addWidget(languageCombo);
     tabs->setCornerWidget(cornerWidget, Qt::TopRightCorner);
 
@@ -58,7 +64,7 @@ QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& color) 
         return QIcon();
 
     const qreal dpr = 2.0;          // render at 2x for crisp HiDPI output
-    const int logical = 36;
+    const int logical = 32;
     const int px = int(logical * dpr);
 
     QPixmap pixmap(px, px);
@@ -78,19 +84,41 @@ QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString&
     auto* btn = new QToolButton;
     btn->setText(text);
     btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    btn->setFixedSize(76, 76);
+    // Wider to fit English labels like "Circular Arc", "Delete Selected"
+    btn->setFixedSize(96, 80);
     btn->setCheckable(true);
 
     btn->setIcon(makeSvgIcon(iconName, iconColor));
     btn->setIconSize(QSize(32, 32));
+
+    // Checked/hover styling
+    btn->setStyleSheet(
+        "QToolButton {"
+        "  border: 1px solid transparent;"
+        "  border-radius: 4px;"
+        "  padding: 4px;"
+        "  font-size: 12px;"
+        "}"
+        "QToolButton:hover {"
+        "  border: 1px solid #c7e0f4;"
+        "  background-color: #f3f2f1;"
+        "}"
+        "QToolButton:checked {"
+        "  border: 1px solid #c7e0f4;"
+        "  background-color: #e3f2fd;"
+        "}"
+        "QToolButton:disabled {"
+        "  color: #a19f9d;"
+        "}"
+    );
 
     return btn;
 }
 
 void ToolbarWidget::setupCreateTab() {
     auto* layout = new QHBoxLayout(createTab);
-    layout->setContentsMargins(20, 8, 20, 8);
-    layout->setSpacing(4);
+    layout->setContentsMargins(24, 10, 24, 10);
+    layout->setSpacing(6);
     layout->addStretch();
 
     btnSphere = createToolButton("", "sphere", "#4FC3F7");
@@ -145,8 +173,8 @@ void ToolbarWidget::setupCreateTab() {
 
 void ToolbarWidget::setupManageTab() {
     auto* layout = new QHBoxLayout(manageTab);
-    layout->setContentsMargins(20, 8, 20, 8);
-    layout->setSpacing(4);
+    layout->setContentsMargins(24, 10, 24, 10);
+    layout->setSpacing(6);
     layout->addStretch();
 
     btnDeleteSelected = createToolButton("", "delete", "#EF5350");
@@ -169,7 +197,8 @@ void ToolbarWidget::setupLanguageSelector() {
     languageCombo = new QComboBox;
     languageCombo->addItem("中文", (int)Language::ZH);
     languageCombo->addItem("English", (int)Language::EN);
-    languageCombo->setFixedWidth(100);
+    languageCombo->setFixedWidth(110);
+    languageCombo->setStyleSheet("QComboBox { font-size: 13px; padding: 2px 6px; }");
 
     connect(languageCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int) {
         Language lang = (Language)languageCombo->currentData().toInt();

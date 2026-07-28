@@ -14,7 +14,10 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     setupUI();
-    setWindowTitle("GeomTool v1.0");
+    auto& i18n = I18n::instance();
+    setWindowTitle(QString("%1 %2")
+        .arg(QString::fromStdString(i18n.t("appName")))
+        .arg(QString::fromStdString(i18n.t("version"))));
     resize(1200, 800);
 }
 
