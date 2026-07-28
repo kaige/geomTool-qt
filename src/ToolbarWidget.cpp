@@ -8,8 +8,14 @@
 #include <QStyle>
 #include <QPainter>
 #include <QFile>
-#include <QSvgRenderer>
 #include <QMenu>
+
+#if __has_include(<QSvgRenderer>)
+#include <QSvgRenderer>
+#define HAVE_SVG 1
+#else
+#define HAVE_SVG 0
+#endif
 
 ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     : QWidget(parent), mainWindow(mw)
@@ -51,7 +57,8 @@ ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     retranslateUi();
 }
 
-QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& color) {
+QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& iconColor) {
+#if HAVE_SVG
     // Load the SVG from Qt resources, substitute the requested stroke color
     // (the source icons use stroke="currentColor"), and rasterize via QSvgRenderer.
     QFile file(":/icons/" + iconName + ".svg");
@@ -59,7 +66,7 @@ QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& color) 
         return QIcon();
 
     QString svg = QString::fromUtf8(file.readAll());
-    svg.replace(QStringLiteral("currentColor"), color);
+    svg.replace(QStringLiteral("currentColor"), iconColor);
 
     QSvgRenderer renderer(svg.toUtf8());
     if (!renderer.isValid())
@@ -80,6 +87,18 @@ QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& color) 
     painter.end();
 
     return QIcon(pixmap);
+#else
+    // Fallback: draw a colored circle when SVG support is unavailable (e.g. WASM without Qt::Svg)
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setBrush(QColor(iconColor));
+    p.setPen(QPen(QColor(50, 50, 50), 1));
+    p.drawEllipse(3, 3, 26, 26);
+    p.end();
+    return QIcon(pixmap);
+#endif
 }
 
 QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString& iconName, const QString& iconColor) {

@@ -6,14 +6,15 @@
 #include "GeometryStore.h"
 
 int main(int argc, char* argv[]) {
-    // Request an OpenGL 3.3 Core context with MSAA before any widget is
-    // created. This profile is the cross-platform sweet spot: desktop
-    // Windows/Linux use a native 3.3+ driver and macOS resolves it to a
-    // 4.1 core context (its highest supported core profile).
+    // Request an OpenGL context with MSAA before any widget is created.
+    // Desktop: 3.3 Core profile (resolves to 4.1 on macOS).
+    // WASM: GLES defaults (WebGL 2 emulation, no version/profile override needed).
     QSurfaceFormat fmt;
+#ifndef Q_OS_WASM
     fmt.setVersion(3, 3);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
     fmt.setDepthBufferSize(24);
+#endif
     fmt.setSamples(4); // 4x MSAA for smooth line edges
     QSurfaceFormat::setDefaultFormat(fmt);
 

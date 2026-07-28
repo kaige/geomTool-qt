@@ -1,6 +1,15 @@
 #pragma once
 #include <QOpenGLWidget>
+#include <QtGlobal>  // for Q_OS_WASM define
+
+// Cross-platform OpenGL function set.
+#ifdef Q_OS_WASM
+#include <QOpenGLFunctions>
+using GLFunctions = QOpenGLFunctions;
+#else
 #include <QOpenGLFunctions_3_3_Core>
+using GLFunctions = QOpenGLFunctions_3_3_Core;
+#endif
 #include <QPointF>
 #include "Camera.h"
 #include "Types.h"
@@ -25,7 +34,7 @@ class SnapManager;
 // Projection to screen pixels stays on the CPU (Camera::project),
 // so GL geometry and QPainter overlays are always pixel-aligned.
 // ============================================================
-class CanvasWidget : public QOpenGLWidget, protected QOpenGLFunctions_3_3_Core {
+class CanvasWidget : public QOpenGLWidget, protected GLFunctions {
     Q_OBJECT
 public:
     explicit CanvasWidget(QWidget* parent = nullptr);

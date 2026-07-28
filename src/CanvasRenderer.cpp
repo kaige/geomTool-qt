@@ -3,6 +3,15 @@
 #include <QVector2D>
 #include <cmath>
 
+// GLSL version macro: GLSL ES 3.0 for WASM/WebGL2, GLSL 3.30 Core for desktop.
+#ifdef Q_OS_WASM
+#define GLSL_HEADER "#version 300 es\n"
+#define FRAG_PRECISION "precision mediump float;\n"
+#else
+#define GLSL_HEADER "#version 330 core\n"
+#define FRAG_PRECISION ""
+#endif
+
 namespace {
 // ----------------------------------------------------------------
 // Line vertex shader.
@@ -10,8 +19,7 @@ namespace {
 // triangles) perpendicular to the segment direction, giving a
 // constant pixel thickness regardless of zoom or platform.
 // ----------------------------------------------------------------
-const char* kLineVS = R"(
-#version 330 core
+const char* kLineVS = GLSL_HEADER R"(
 layout(location = 0) in vec2 aA;          // segment start (screen px)
 layout(location = 1) in vec2 aB;          // segment end   (screen px)
 layout(location = 2) in vec4 aColor;
@@ -45,8 +53,7 @@ void main() {
 }
 )";
 
-const char* kLineFS = R"(
-#version 330 core
+const char* kLineFS = GLSL_HEADER FRAG_PRECISION R"(
 in vec4 vColor;
 in float vT;
 in float vSegLen;

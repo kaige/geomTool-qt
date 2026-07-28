@@ -22,7 +22,7 @@
 - **语言**: C++17
 - **框架**: Qt 6 (Widgets)
 - **构建**: CMake 3.16+
-- **渲染**: OpenGL 3.3 Core 可编程管线（QOpenGLWidget + GLSL shader），几何经 CPU 正交投影后由 GPU 光栅化；少量屏幕空间叠加（选择手柄、捕捉标记、坐标轴 gizmo）用 QPainter 合成，跨平台（Windows / Linux / macOS）
+- **渲染**: OpenGL 3.3 Core（桌面）/ GLES 3.0（WebAssembly）可编程管线（QOpenGLWidget + GLSL shader），几何经 CPU 正交投影后由 GPU 光栅化；少量屏幕空间叠加（选择手柄、捕捉标记、坐标轴 gizmo）用 QPainter 合成，跨平台（Windows / Linux / macOS / WebAssembly）
 
 ## 项目结构
 
@@ -215,6 +215,212 @@ cmake --build . -j$(nproc)
    ```cmd
    Release\geomTool.exe
    ```
+
+---
+
+## WebAssembly (WASM) 构建指南
+
+geomTool-qt 可以编译为 WebAssembly，在浏览器中直接运行。
+
+### 环境概览
+
+WASM 编译需要三套工具链：
+
+| 组件 | 说明 |
+|------|------|
+| **Emscripten SDK** | C++ → WASM 编译器（emcc/em++） |
+| **Qt6 WASM 版** | 用 Emscripten 交叉编译的 Qt6 库 |
+| **Qt6 Desktop 版** | 同版本的桌面 Qt（提供 moc/rcc 等主机工具） |
+
+### macOS（Apple Silicon / Intel）
+
+#### 1. 安装 Emscripten SDK
+
+```bash
+cd ~
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk
+./emsdk install latest
+./emsdk activate latest
+source ~/emsdk/emsdk_env.sh
+```
+
+#### 2. 安装 Qt6 Desktop 版（主机工具）
+
+Qt6 WASM 构建需要同版本的桌面 Qt 提供 `moc`、`rcc` 等工具。推荐使用 `aqtinstall`：
+
+```bash
+python3 -m venv ~/wasm-venv
+source ~/wasm-venv/bin/activate
+pip install aqtinstall
+
+# 安装 Qt 6.8.3 桌面版（与 WASM 版本号必须一致）
+aqt install-qt mac desktop 6.8.3 clang_64 -O ~/qt-host
+```
+
+> 也可以用 Qt 在线安装器安装同版本的桌面 Qt，效果相同。
+
+#### 3. 从源码编译 Qt6 WASM 版
+
+```bash
+# 下载 Qt 6.8.3 源码
+mkdir ~/qt-wasm-src && cd ~/qt-wasm-src
+curl -LO https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz
+curl -LO https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/qtsvg-everywhere-src-6.8.3.tar.xz
+tar xf qtbase-everywhere-src-6.8.3.tar.xz
+tar xf qtsvg-everywhere-src-6.8.3.tar.xz
+
+# 编译 qtbase（约 5~10 分钟）
+source ~/emsdk/emsdk_env.sh
+brew install ninja  # 确保 Ninja 已安装
+
+mkdir build-wasm && cd build-wasm
+cmake -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+  -DCMAKE_INSTALL_PREFIX=$HOME/qt-wasm \
+  -DQT_HOST_PATH=$HOME/qt-host/6.8.3/macos \
+  -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF \
+  -DFEATURE_gui=ON -DFEATURE_widgets=ON \
+  -DFEATURE_opengl=ON -DFEATURE_opengles2=ON \
+  -DFEATURE_opengl_desktop=OFF -DFEATURE_vulkan=OFF \
+  -DFEATURE_thread=ON \
+  ../qtbase-everywhere-src-6.8.3
+cmake --build . --parallel $(sysctl -n hw.ncpu)
+cmake --install .
+
+# 编译 qtsvg（约 1 分钟）
+cd ~/qt-wasm-src
+mkdir build-svg && cd build-svg
+cmake -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+  -DCMAKE_PREFIX_PATH=$HOME/qt-wasm \
+  -DCMAKE_INSTALL_PREFIX=$HOME/qt-wasm \
+  -DQT_HOST_PATH=$HOME/qt-host/6.8.3/macos \
+  ../qtsvg-everywhere-src-6.8.3
+cmake --build . --parallel $(sysctl -n hw.ncpu)
+cmake --install .
+```
+
+> **已知问题**：Qt 6.8.3 的 `qwasmtheme.cpp` 缺少 `#include <QPalette>`，编译时需手动在文件开头添加该行。
+
+#### 4. 编译 geomTool-qt WASM 版
+
+```bash
+cd ~/Projects/geomTool-qt
+
+# 使用提供的构建脚本（自动检测 emsdk 和 Qt 路径）
+bash build-wasm.sh
+
+# 或手动构建：
+source ~/emsdk/emsdk_env.sh
+mkdir build-wasm && cd build-wasm
+cmake -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+  -DCMAKE_PREFIX_PATH=$HOME/qt-wasm \
+  -DQT_HOST_PATH=$HOME/qt-host/6.8.3/macos \
+  -DWASM_BUILD=ON \
+  ..
+cmake --build . --parallel $(sysctl -n hw.ncpu)
+```
+
+#### 5. 在浏览器中运行
+
+```bash
+cd build-wasm
+python3 -m http.server 8080
+# 打开浏览器访问 http://localhost:8080/geomTool.html
+```
+
+> ⚠️ 必须通过 HTTP 服务器访问，不能直接用 `file://` 打开（浏览器安全限制）。
+
+### Windows
+
+#### 1. 安装 Emscripten SDK
+
+```cmd
+cd %USERPROFILE%
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk
+emsdk install latest
+emsdk activate latest
+:: 每次打开新终端时运行：
+emsdk_env.bat
+```
+
+#### 2. 安装 Qt6 Desktop 版
+
+使用 [Qt 在线安装器](https://www.qt.io/download-open-source) 安装 Qt 6.8.3（MinGW 或 MSVC 均可），记下安装路径如 `C:\Qt\6.8.3\mingw_64`。
+
+#### 3. 编译 Qt6 WASM 版
+
+```cmd
+:: 下载源码（同 macOS 步骤）
+:: 使用 Git Bash 或 MSYS2 环境
+cd %USERPROFILE%
+mkdir qt-wasm-src && cd qt-wasm-src
+curl -LO https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz
+curl -LO https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/qtsvg-everywhere-src-6.8.3.tar.xz
+tar xf qtbase-everywhere-src-6.8.3.tar.xz
+tar xf qtsvg-everywhere-src-6.8.3.tar.xz
+
+:: 配置（使用 emsdk 的 toolchain，Qt host 指向桌面 Qt 安装路径）
+call emsdk_env.bat
+mkdir build-wasm && cd build-wasm
+cmake -G Ninja ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_TOOLCHAIN_FILE=%EMSDK%\upstream\emscripten\cmake\Modules\Platform\Emscripten.cmake ^
+  -DCMAKE_INSTALL_PREFIX=%USERPROFILE%\qt-wasm ^
+  -DQT_HOST_PATH=C:\Qt\6.8.3\mingw_64 ^
+  -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF ^
+  -DFEATURE_gui=ON -DFEATURE_widgets=ON ^
+  -DFEATURE_opengl=ON -DFEATURE_opengles2=ON ^
+  -DFEATURE_opengl_desktop=OFF -DFEATURE_vulkan=OFF ^
+  -DFEATURE_thread=ON ^
+  ..\qtbase-everywhere-src-6.8.3
+cmake --build . --parallel %NUMBER_OF_PROCESSORS%
+cmake --install .
+```
+
+#### 4. 编译 geomTool-qt WASM 版
+
+```cmd
+cd C:\path\to\geomTool-qt
+mkdir build-wasm && cd build-wasm
+call emsdk_env.bat
+cmake -G Ninja ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_TOOLCHAIN_FILE=%EMSDK%\upstream\emscripten\cmake\Modules\Platform\Emscripten.cmake ^
+  -DCMAKE_PREFIX_PATH=%USERPROFILE%\qt-wasm ^
+  -DQT_HOST_PATH=C:\Qt\6.8.3\mingw_64 ^
+  -DWASM_BUILD=ON ^
+  ..
+cmake --build . --parallel %NUMBER_OF_PROCESSORS%
+```
+
+#### 5. 运行
+
+```cmd
+cd build-wasm
+python -m http.server 8080
+:: 浏览器访问 http://localhost:8080/geomTool.html
+```
+
+### WASM 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `geomTool.wasm` | 编译后的 WebAssembly 二进制（~1.5 MB） |
+| `geomTool.js`   | JavaScript 胶水代码 + Qt 运行时（~3.7 MB） |
+| `geomTool.html` | HTML 加载页面 |
+
+### WASM 平台差异
+
+- **OpenGL**：桌面版使用 OpenGL 3.3 Core Profile；WASM 版使用 GLES 3.0（WebGL 2），GLSL 着色器自动切换为 GLSL ES 3.00
+- **线程**：WASM 版启用 pthreads（Qt WASM 多线程模式）
+- **内存**：启用 `ALLOW_MEMORY_GROWTH`（动态内存增长）
 
 ---
 

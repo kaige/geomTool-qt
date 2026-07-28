@@ -1,5 +1,16 @@
 #pragma once
+
+#include <QtGlobal>  // for Q_OS_WASM define
+
+// Cross-platform OpenGL function set.
+// Desktop uses Core 3.3; WebAssembly uses GLES 3.0 (WebGL 2).
+#ifdef Q_OS_WASM
+#include <QOpenGLFunctions>
+using GLFunctions = QOpenGLFunctions;
+#else
 #include <QOpenGLFunctions_3_3_Core>
+using GLFunctions = QOpenGLFunctions_3_3_Core;
+#endif
 #include <QOpenGLShaderProgram>
 #include <QPointF>
 #include <QColor>
@@ -19,11 +30,12 @@
 // keeps the GL geometry pixel-aligned with the QPainter
 // overlays (selection handles, snap markers, axis gizmo).
 //
-// Targets OpenGL 3.3 Core for full cross-platform support:
+// Targets OpenGL 3.3 Core / GLES 3.0 for full cross-platform support:
 //   - desktop Windows / Linux : native 3.3+ driver
 //   - macOS                   : resolves to a 4.1 core context
+//   - WebAssembly (browser)   : WebGL 2 via GLES 3.0 emulation
 // ============================================================
-class CanvasRenderer : protected QOpenGLFunctions_3_3_Core {
+class CanvasRenderer : protected GLFunctions {
 public:
     CanvasRenderer() = default;
     ~CanvasRenderer();
