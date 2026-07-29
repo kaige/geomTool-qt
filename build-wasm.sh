@@ -22,13 +22,27 @@ if [ ! -f "$EMSDK_DIR/emsdk_env.sh" ]; then
 fi
 source "$EMSDK_DIR/emsdk_env.sh"
 
-# --- Locate Qt6 WASM ---
-QT_WASM_DIR="${QT_WASM_DIR:-$HOME/qt-wasm}"
+# emsdk 6.x requires Python 3.10+; use bundled python if available
+if [ -z "$EMSDK_PYTHON" ]; then
+    for py in "$EMSDK_DIR"/python/*/bin/python3; do
+        if [ -x "$py" ]; then
+            export EMSDK_PYTHON="$py"
+            break
+        fi
+    done
+fi
+
+# --- Locate Qt6 WASM (static build preferred) ---
+QT_WASM_DIR="${QT_WASM_DIR:-$HOME/qt-wasm-static}"
 if [ ! -d "$QT_WASM_DIR/lib/cmake/Qt6" ]; then
-    echo "ERROR: Qt6 WASM build not found at $QT_WASM_DIR"
-    echo "  Build it from source or install via Qt online installer."
-    echo "  See README.md for instructions."
-    exit 1
+    # Fallback to shared build
+    QT_WASM_DIR="$HOME/qt-wasm"
+    if [ ! -d "$QT_WASM_DIR/lib/cmake/Qt6" ]; then
+        echo "ERROR: Qt6 WASM build not found"
+        echo "  Static: $HOME/qt-wasm-static"
+        echo "  Shared: $HOME/qt-wasm"
+        exit 1
+    fi
 fi
 
 # --- Locate Qt host tools (same version, desktop build) ---

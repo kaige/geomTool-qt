@@ -8,6 +8,8 @@
 #include <QToolButton>
 #include <QSignalBlocker>
 #include <QLabel>
+#include <QPainter>
+#include <QPainterPath>
 
 ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
     : QWidget(parent), mainWindow(mw)
@@ -26,12 +28,14 @@ ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
 
     // Table
     table = new QTableWidget;
-    table->setColumnCount(3);   // Type, Actions (vis+delete), ID
+    table->setColumnCount(3);   // Type, ID, Actions (eye + trash)
     table->verticalHeader()->setVisible(false);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setShowGrid(false);
     table->setAlternatingRowColors(true);
+    // Row height must accommodate the 30px action buttons + padding
+    table->verticalHeader()->setDefaultSectionSize(38);
     table->setStyleSheet(
         "QTableWidget { border: none; background: white; }"
         "QTableWidget::item { padding: 6px 10px; }"
@@ -40,13 +44,13 @@ ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
         "border-bottom: 1px solid #e1dfdd; font-weight: 600; font-size: 13px; }"
     );
 
-    // Column widths: Type stretches, Actions fixed, ID fixed
+    // Column widths: Type stretches, ID fixed, Actions fixed
     table->horizontalHeader()->setStretchLastSection(false);
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);  // Type
-    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);    // Actions
-    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);    // ID
-    table->setColumnWidth(1, 80);   // Actions: 👁 + ✕
-    table->setColumnWidth(2, 50);   // ID
+    table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);    // ID
+    table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);    // Actions
+    table->setColumnWidth(1, 40);    // ID
+    table->setColumnWidth(2, 96);    // Actions: room for two 30px buttons + margins
 
     layout->addWidget(table);
 
@@ -63,20 +67,15 @@ ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
         if (row < 0 || row >= (int)g_store.shapes.size()) return;
         auto& shape = g_store.shapes[row];
 
-        if (col == 1) {
-            // Toggle visibility
-            g_store.updateShape(shape->id, VisibilityUpdate{!shape->visible});
-        } else if (col == 2) {
-            // Delete
-            g_store.removeShape(shape->id);
-        } else {
-            // Select
+        if (col == 0 || col == 1) {
+            // Select (clicking type or ID)
             if (g_store.selectedShapeId == shape->id)
                 g_store.selectShapeNull();
             else
                 g_store.selectShape(shape->id);
+            refresh();
         }
-        refresh();
+        // col == 2 is handled by the embedded QToolButtons
     });
 
     retranslateUi();
@@ -86,8 +85,8 @@ void ShapeListWidget::retranslateUi() {
     auto& i18n = I18n::instance();
     QStringList headers;
     headers << QString::fromStdString(i18n.t("type"))
-            << QString::fromStdString(i18n.t("actions"))
-            << QString::fromStdString(i18n.t("id"));
+            << QString::fromStdString(i18n.t("id"))
+            << QString::fromStdString(i18n.t("actions"));
     table->setHorizontalHeaderLabels(headers);
 
     emptyLabel->setText(QString::fromStdString(i18n.t("noShapes")));
@@ -106,6 +105,7 @@ void ShapeListWidget::refresh() {
 
     int row = 0;
     for (auto& shape : g_store.shapes) {
+        table->setRowHeight(row, 38);  // ensure room for 30px buttons
         // Type
         std::string typeKey = shapeTypeKey(shape->type);
         std::string typeLabel = i18n.t(typeKey);
@@ -113,19 +113,113 @@ void ShapeListWidget::refresh() {
         auto* typeItem = new QTableWidgetItem(QString::fromStdString(typeLabel));
         table->setItem(row, 0, typeItem);
 
-        // Visibility toggle + delete (combined actions cell)
-        auto* actionsItem = new QTableWidgetItem;
-        QString visIcon = shape->visible ? QStringLiteral("\xF0\x9F\x91\x81") : QStringLiteral("\xE2\x80\x94");
-        // Format: "👁  ✕" or "—  ✕"
-        actionsItem->setText(QString("%1   \xE2\x9C\x95").arg(visIcon));
-        actionsItem->setTextAlignment(Qt::AlignCenter);
-        actionsItem->setToolTip(QString::fromStdString(i18n.t(shape->visible ? "hide" : "show")));
-        table->setItem(row, 1, actionsItem);
-
         // ID
         auto* idItem = new QTableWidgetItem(QString::fromStdString(shape->id));
         idItem->setTextAlignment(Qt::AlignCenter);
-        table->setItem(row, 2, idItem);
+        idItem->setToolTip(QString::fromStdString(shape->id));
+        table->setItem(row, 1, idItem);
+
+        // Actions cell (col 2): eye toggle button + trash delete button
+        {
+            auto* actionsWidget = new QWidget;
+            auto* hLayout = new QHBoxLayout(actionsWidget);
+            hLayout->setContentsMargins(4, 0, 4, 0);
+            hLayout->setSpacing(6);
+
+            // --- Draw eye icon as pixmap (reliable, no emoji clipping) ---
+            auto makeEyeIcon = [](bool visible) -> QIcon {
+                const int sz = 24;
+                QPixmap pix(sz, sz);
+                pix.fill(Qt::transparent);
+                QPainter p(&pix);
+                p.setRenderHint(QPainter::Antialiasing);
+                QColor c = visible ? QColor("#107c10") : QColor("#a19f9d");
+                QPen pen(c, 1.6);
+                p.setPen(pen);
+                p.setBrush(Qt::NoBrush);
+                // Eye outline (almond shape)
+                p.drawEllipse(QRectF(2, 7, 20, 10));
+                // Pupil
+                p.setBrush(c);
+                p.drawEllipse(QPointF(12, 12), 2.5, 2.5);
+                p.end();
+                return QIcon(pix);
+            };
+
+            // --- Draw trash icon as pixmap ---
+            auto makeTrashIcon = []() -> QIcon {
+                const int sz = 24;
+                QPixmap pix(sz, sz);
+                pix.fill(Qt::transparent);
+                QPainter p(&pix);
+                p.setRenderHint(QPainter::Antialiasing);
+                QColor c("#d13438");
+                QPen pen(c, 1.6);
+                p.setPen(pen);
+                p.setBrush(Qt::NoBrush);
+                // Lid
+                p.drawLine(5, 7, 19, 7);
+                p.drawLine(9, 7, 10, 5);
+                p.drawLine(10, 5, 14, 5);
+                p.drawLine(14, 5, 15, 7);
+                // Body
+                p.drawLine(7, 7, 8, 19);
+                p.drawLine(17, 7, 16, 19);
+                p.drawLine(8, 19, 16, 19);
+                // Inner lines
+                p.drawLine(10, 9, 10, 17);
+                p.drawLine(12, 9, 12, 17);
+                p.drawLine(14, 9, 14, 17);
+                p.end();
+                return QIcon(pix);
+            };
+
+            // Eye toggle button
+            auto* eyeBtn = new QToolButton;
+            eyeBtn->setAutoRaise(true);
+            eyeBtn->setFixedSize(30, 30);
+            eyeBtn->setIcon(makeEyeIcon(shape->visible));
+            eyeBtn->setIconSize(QSize(24, 24));
+            eyeBtn->setStyleSheet(
+                "QToolButton { border: none; border-radius: 4px; }"
+                "QToolButton:hover { background-color: #f3f2f1; }"
+            );
+            eyeBtn->setToolTip(QString::fromStdString(i18n.t(shape->visible ? "hide" : "show")));
+
+            QString shapeId = QString::fromStdString(shape->id);
+            connect(eyeBtn, &QToolButton::clicked, [this, shapeId]() {
+                for (auto& s : g_store.shapes) {
+                    if (s->id == shapeId.toStdString()) {
+                        g_store.updateShape(s->id, VisibilityUpdate{!s->visible});
+                        break;
+                    }
+                }
+                refresh();
+            });
+
+            // Trash delete button
+            auto* trashBtn = new QToolButton;
+            trashBtn->setAutoRaise(true);
+            trashBtn->setFixedSize(30, 30);
+            trashBtn->setIcon(makeTrashIcon());
+            trashBtn->setIconSize(QSize(24, 24));
+            trashBtn->setStyleSheet(
+                "QToolButton { border: none; border-radius: 4px; }"
+                "QToolButton:hover { background-color: #fde7e9; }"
+            );
+            trashBtn->setToolTip(QString::fromStdString(i18n.t("deleteSelected")));
+
+            connect(trashBtn, &QToolButton::clicked, [this, shapeId]() {
+                g_store.removeShape(shapeId.toStdString());
+                refresh();
+            });
+
+            hLayout->addWidget(eyeBtn);
+            hLayout->addWidget(trashBtn);
+            hLayout->addStretch();
+
+            table->setCellWidget(row, 2, actionsWidget);
+        }
 
         // Highlight selected
         if (shape->id == g_store.selectedShapeId) {

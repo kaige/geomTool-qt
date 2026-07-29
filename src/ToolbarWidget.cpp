@@ -72,8 +72,9 @@ QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& iconCol
     if (!renderer.isValid())
         return QIcon();
 
-    const qreal dpr = 2.0;          // render at 2x for crisp HiDPI output
-    const int logical = 32;
+    // Render at 3x for crisp HiDPI output
+    const qreal dpr = 3.0;
+    const int logical = 48;         // larger target → less clipping risk
     const int px = int(logical * dpr);
 
     QPixmap pixmap(px, px);
@@ -83,7 +84,11 @@ QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& iconCol
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
-    renderer.render(&painter);
+
+    // CRITICAL: explicitly render into the full target rectangle.
+    // Without bounds, QSvgRenderer uses the SVG's default size (24×24)
+    // positioned at (0,0), causing partial rendering / clipping.
+    renderer.render(&painter, QRectF(0, 0, logical, logical));
     painter.end();
 
     return QIcon(pixmap);
@@ -106,11 +111,11 @@ QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString&
     btn->setText(text);
     btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     // Wider to fit English labels like "Circular Arc", "Delete Selected"
-    btn->setFixedSize(96, 80);
+    btn->setFixedSize(96, 84);
     btn->setCheckable(true);
 
     btn->setIcon(makeSvgIcon(iconName, iconColor));
-    btn->setIconSize(QSize(32, 32));
+    btn->setIconSize(QSize(40, 40));
 
     // Checked/hover styling
     btn->setStyleSheet(
