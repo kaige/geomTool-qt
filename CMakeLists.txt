@@ -76,6 +76,7 @@ else()
         src/tools/CreateShape3DTool.cpp
         src/tools/MoveLineEndpointTool.cpp
         src/tools/MoveArcEndpointTool.cpp
+        src/tools/MoveArcTool.cpp
         resources/icons.qrc
     )
 endif()

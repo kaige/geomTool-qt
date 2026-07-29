@@ -24,18 +24,21 @@ ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
-    // Tab bar
+    // Tab bar — Chili3D style: clean, minimal, top tabs
     tabs = new QTabWidget;
     tabs->setDocumentMode(true);
-    // Give tab headers more breathing room
     tabs->setStyleSheet(
-        "QTabBar::tab { padding: 6px 16px; font-size: 14px; }"
-        "QTabBar::tab:selected { color: #0078d4; }"
-        "QTabWidget::pane { border: none; border-top: 1px solid #e1dfdd; }"
+        "QTabBar::tab { padding: 6px 16px; font-size: 13px; color: #666; border: none; }"
+        "QTabBar::tab:selected { color: #333; font-weight: 600; border-bottom: 3px solid #0E62D7; }"
+        "QTabBar::tab:hover { color: #333; }"
+        "QTabWidget::pane { border: none; border-top: 1px solid #dcdcdc; "
+        "  background: #ffffff; }"
     );
 
     createTab = new QWidget;
+    createTab->setStyleSheet("background-color: #ffffff;");
     manageTab = new QWidget;
+    manageTab->setStyleSheet("background-color: #ffffff;");
 
     setupCreateTab();
     setupManageTab();
@@ -111,31 +114,33 @@ QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString&
     btn->setText(text);
     btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     // Wider to fit English labels like "Circular Arc", "Delete Selected"
-    btn->setFixedSize(96, 84);
+    btn->setFixedSize(80, 72);
     btn->setCheckable(true);
 
     btn->setIcon(makeSvgIcon(iconName, iconColor));
     btn->setIconSize(QSize(40, 40));
 
-    // Checked/hover styling
+    // Chili3D-style ribbon button: monochrome icon, clean hover/active states
     btn->setStyleSheet(
         "QToolButton {"
         "  border: 1px solid transparent;"
         "  border-radius: 4px;"
         "  padding: 4px;"
         "  font-size: 12px;"
-        "}"
+        "  color: #333;"
+        "  background: transparent;"
+        "} "
         "QToolButton:hover {"
-        "  border: 1px solid #c7e0f4;"
-        "  background-color: #f3f2f1;"
-        "}"
+        "  border: 1px solid #d0d0d0;"
+        "  background-color: #e8e8e8;"
+        "} "
         "QToolButton:checked {"
-        "  border: 1px solid #c7e0f4;"
-        "  background-color: #e3f2fd;"
-        "}"
+        "  border: 1px solid #b0d8f0;"
+        "  background-color: #d4e9f7;"
+        "} "
         "QToolButton:disabled {"
-        "  color: #a19f9d;"
-        "}"
+        "  color: #bbb;"
+        "} "
     );
 
     return btn;
@@ -143,17 +148,17 @@ QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString&
 
 void ToolbarWidget::setupCreateTab() {
     auto* layout = new QHBoxLayout(createTab);
-    layout->setContentsMargins(24, 10, 24, 10);
-    layout->setSpacing(6);
+    layout->setContentsMargins(16, 8, 16, 8);
+    layout->setSpacing(4);
     layout->addStretch();
-
-    btnSphere = createToolButton("", "sphere", "#4FC3F7");
-    btnCube = createToolButton("", "cube", "#81C784");
-    btnCylinder = createToolButton("", "cylinder", "#FFB74D");
-    btnCone = createToolButton("", "cone", "#A1887F");
-    btnTorus = createToolButton("", "torus", "#BA68C8");
-    btnLineSegment = createToolButton("", "line", "#0078d4");
-    btnCircularArc = createToolButton("", "arc", "#E8804D");
+    const QString iconColor = "#555555";
+    btnSphere = createToolButton("", "sphere", iconColor);
+    btnCube = createToolButton("", "cube", iconColor);
+    btnCylinder = createToolButton("", "cylinder", iconColor);
+    btnCone = createToolButton("", "cone", iconColor);
+    btnTorus = createToolButton("", "torus", iconColor);
+    btnLineSegment = createToolButton("", "line", iconColor);
+    btnCircularArc = createToolButton("", "arc", iconColor);
 
     layout->addWidget(btnSphere);
     layout->addWidget(btnCube);
@@ -199,12 +204,12 @@ void ToolbarWidget::setupCreateTab() {
 
 void ToolbarWidget::setupManageTab() {
     auto* layout = new QHBoxLayout(manageTab);
-    layout->setContentsMargins(24, 10, 24, 10);
-    layout->setSpacing(6);
+    layout->setContentsMargins(16, 8, 16, 8);
+    layout->setSpacing(4);
     layout->addStretch();
 
-    btnDeleteSelected = createToolButton("", "delete", "#EF5350");
-    btnClearAll = createToolButton("", "clear", "#FF7043");
+    btnDeleteSelected = createToolButton("", "delete", "#555555");
+    btnClearAll = createToolButton("", "clear", "#555555");
 
     layout->addWidget(btnDeleteSelected);
     layout->addWidget(btnClearAll);
@@ -262,7 +267,7 @@ void ToolbarWidget::setupLanguageSelector() {
     menu->setStyleSheet(
         "QMenu { font-size: 12px; min-width: 80px; padding: 4px; }"
         "QMenu::item { padding: 6px 16px; }"
-        "QMenu::item:selected { background-color: #e3f2fd; color: #1565c0; }"
+        "QMenu::item:selected { background-color: #e8e8e8; color: #333; }"
     );
     auto* actZh = menu->addAction(QString::fromStdString(I18n::instance().t("chinese")));
     auto* actEn = menu->addAction(QString::fromStdString(I18n::instance().t("english")));

@@ -39,7 +39,7 @@ ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
     table->setStyleSheet(
         "QTableWidget { border: none; background: white; }"
         "QTableWidget::item { padding: 6px 10px; }"
-        "QTableWidget::item:selected { background-color: #e3f2fd; color: #1565c0; font-weight: 600; }"
+        "QTableWidget::item:selected { background-color: #d4e9f7; color: #333; font-weight: 600; }"
         "QHeaderView::section { padding: 8px 10px; background: #f5f5f5; border: none; "
         "border-bottom: 1px solid #e1dfdd; font-weight: 600; font-size: 13px; }"
     );
@@ -133,7 +133,7 @@ void ShapeListWidget::refresh() {
                 pix.fill(Qt::transparent);
                 QPainter p(&pix);
                 p.setRenderHint(QPainter::Antialiasing);
-                QColor c = visible ? QColor("#107c10") : QColor("#a19f9d");
+                QColor c = visible ? QColor("#555555") : QColor("#bbb");
                 QPen pen(c, 1.6);
                 p.setPen(pen);
                 p.setBrush(Qt::NoBrush);
@@ -153,7 +153,7 @@ void ShapeListWidget::refresh() {
                 pix.fill(Qt::transparent);
                 QPainter p(&pix);
                 p.setRenderHint(QPainter::Antialiasing);
-                QColor c("#d13438");
+                QColor c("#666666");
                 QPen pen(c, 1.6);
                 p.setPen(pen);
                 p.setBrush(Qt::NoBrush);
@@ -205,7 +205,7 @@ void ShapeListWidget::refresh() {
             trashBtn->setIconSize(QSize(24, 24));
             trashBtn->setStyleSheet(
                 "QToolButton { border: none; border-radius: 4px; }"
-                "QToolButton:hover { background-color: #fde7e9; }"
+                "QToolButton:hover { background-color: #e8e8e8; }"
             );
             trashBtn->setToolTip(QString::fromStdString(i18n.t("deleteSelected")));
 

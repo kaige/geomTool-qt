@@ -350,8 +350,8 @@ void CanvasWidget::paintGL() {
 }
 
 void CanvasWidget::drawGrid() {
-    // Subtle grid on the Z=0 plane
-    float gridSize = 10.0f;
+    // Subtle grid on the Z=0 plane — square extent in both directions
+    float gridExtent = 20.0f;
     int numLines = 20;
 
     QColor gridColor(240, 240, 240);
@@ -359,19 +359,19 @@ void CanvasWidget::drawGrid() {
 
     for (int i = -numLines; i <= numLines; i++) {
         float x = (float)i;
-        QPointF s1 = worldToScreen({x, -gridSize, 0});
-        QPointF s2 = worldToScreen({x, gridSize, 0});
+        QPointF s1 = worldToScreen({x, -gridExtent, 0});
+        QPointF s2 = worldToScreen({x, gridExtent, 0});
         renderer.addLine(s1, s2, gridColor, 0.5f, false);
 
-        QPointF s3 = worldToScreen({-gridSize, x, 0});
-        QPointF s4 = worldToScreen({gridSize, x, 0});
+        QPointF s3 = worldToScreen({-gridExtent, x, 0});
+        QPointF s4 = worldToScreen({gridExtent, x, 0});
         renderer.addLine(s3, s4, gridColor, 0.5f, false);
     }
 
     // Axes lines on Z=0 plane
     QPointF origin = worldToScreen({0, 0, 0});
-    QPointF xAxis  = worldToScreen({gridSize, 0, 0});
-    QPointF yAxis  = worldToScreen({0, gridSize, 0});
+    QPointF xAxis  = worldToScreen({gridExtent, 0, 0});
+    QPointF yAxis  = worldToScreen({0, gridExtent, 0});
     renderer.addLine(origin, xAxis, axisColor, 1.0f, false);
     renderer.addLine(origin, yAxis, axisColor, 1.0f, false);
 }

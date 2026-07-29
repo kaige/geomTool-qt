@@ -43,7 +43,7 @@ void StatusBarWidget::refresh() {
             centerLabel->setText(QString("%1: %2")
                 .arg(QString::fromStdString(i18n.t("selectedShape")))
                 .arg(QString::fromStdString(i18n.t(typeKey))));
-            centerLabel->setStyleSheet("color: #0078d4; font-weight: 600; font-size: 12px;");
+            centerLabel->setStyleSheet("color: #333; font-weight: 600; font-size: 12px;");
         }
     } else {
         centerLabel->setText("");
