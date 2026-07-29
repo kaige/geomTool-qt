@@ -2,6 +2,7 @@
 build/
 *.o
 *.obj
+aqtinstall.log
 
 # macOS
 .DS_Store

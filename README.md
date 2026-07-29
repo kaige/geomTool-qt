@@ -336,71 +336,84 @@ python3 -m http.server 8080
 
 > ⚠️ 必须通过 HTTP 服务器访问，不能直接用 `file://` 打开（浏览器安全限制）。
 
-### Windows
+### Windows（推荐：aqt 预编译版，无需源码编译 Qt）
 
-#### 1. 安装 Emscripten SDK
+用 `aqtinstall` 下载官方预编译的 Qt WASM 库，比从源码编译 Qt 快得多、更可靠。工具链全部装在 `%USERPROFILE%` 下，互不干扰。
+
+#### 1. 安装 Emscripten SDK（**固定 3.1.56**）
+
+> ⚠️ Qt 6.8.x 官方要求 Emscripten **3.1.56**；用 `latest`（4.x）会因缺 GLESv2/EGL 报错。版本必须固定。
 
 ```cmd
 cd %USERPROFILE%
 git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk
-emsdk install latest
-emsdk activate latest
-:: 每次打开新终端时运行：
-emsdk_env.bat
+emsdk install 3.1.56
+emsdk activate 3.1.56
 ```
 
-#### 2. 安装 Qt6 Desktop 版
+<details>
+<summary>网络慢 / 需代理时：emsdk 下载失败的处理</summary>
 
-使用 [Qt 在线安装器](https://www.qt.io/download-open-source) 安装 Qt 6.8.3（MinGW 或 MSVC 均可），记下安装路径如 `C:\Qt\6.8.3\mingw_64`。
+emsdk 从 `storage.googleapis.com` 下载约 500MB。若直连慢或失败：
 
-#### 3. 编译 Qt6 WASM 版
+1. 用代理（如本地 `http://127.0.0.1:7890`），设环境变量让 emsdk 用 curl 走代理：
+   ```cmd
+   set HTTPS_PROXY=http://127.0.0.1:7890
+   set HTTP_PROXY=http://127.0.0.1:7890
+   ```
+2. 或手动下载 4 个包放入 `%USERPROFILE%\emsdk\downloads\`（文件名不可改），再带 `EMSDK_KEEP_DOWNLOADS=1` 安装（命中缓存、只解压）：
+   - `node-v16.20.0-win-x64.zip`
+   - `python-3.9.2-4-amd64+pywin32.zip`
+   - `portable_jre_8_update_152_64bit.zip`
+   - `9d106be887796484c4aaffc9dc45f48a8810f336-wasm-binaries.zip`（主工具链，~440MB）
+   
+   均来自 `https://storage.googleapis.com/webassembly/emscripten-releases-builds/`（前 3 个在 `deps/`，最后一个在 `win/<hash>/`）。
+   ```cmd
+   set EMSDK_KEEP_DOWNLOADS=1
+   emsdk install 3.1.56
+   ```
+</details>
+
+#### 2. 用 aqt 安装 Qt 6.8.3 WASM + 主机工具
 
 ```cmd
-:: 下载源码（同 macOS 步骤）
-:: 使用 Git Bash 或 MSYS2 环境
-cd %USERPROFILE%
-mkdir qt-wasm-src && cd qt-wasm-src
-curl -LO https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.tar.xz
-curl -LO https://download.qt.io/official_releases/qt/6.8/6.8.3/submodules/qtsvg-everywhere-src-6.8.3.tar.xz
-tar xf qtbase-everywhere-src-6.8.3.tar.xz
-tar xf qtsvg-everywhere-src-6.8.3.tar.xz
-
-:: 配置（使用 emsdk 的 toolchain，Qt host 指向桌面 Qt 安装路径）
-call emsdk_env.bat
-mkdir build-wasm && cd build-wasm
-cmake -G Ninja ^
-  -DCMAKE_BUILD_TYPE=Release ^
-  -DCMAKE_TOOLCHAIN_FILE=%EMSDK%\upstream\emscripten\cmake\Modules\Platform\Emscripten.cmake ^
-  -DCMAKE_INSTALL_PREFIX=%USERPROFILE%\qt-wasm ^
-  -DQT_HOST_PATH=C:\Qt\6.8.3\mingw_64 ^
-  -DQT_BUILD_EXAMPLES=OFF -DQT_BUILD_TESTS=OFF ^
-  -DFEATURE_gui=ON -DFEATURE_widgets=ON ^
-  -DFEATURE_opengl=ON -DFEATURE_opengles2=ON ^
-  -DFEATURE_opengl_desktop=OFF -DFEATURE_vulkan=OFF ^
-  -DFEATURE_thread=ON ^
-  ..\qtbase-everywhere-src-6.8.3
-cmake --build . --parallel %NUMBER_OF_PROCESSORS%
-cmake --install .
+pip install aqtinstall
+:: WASM 目标库（含 Svg）
+aqt install-qt all_os wasm 6.8.3 wasm_singlethread -O %USERPROFILE%\qt-wasm
+:: 同版本桌面 Qt（提供 moc/rcc/uic 主机工具，版本号必须一致）
+aqt install-qt windows desktop 6.8.3 win64_mingw -O %USERPROFILE%\qt-wasm-host
 ```
 
-#### 4. 编译 geomTool-qt WASM 版
+安装后路径：
+- WASM 库：`%USERPROFILE%\qt-wasm\6.8.3\wasm_singlethread`
+- 主机工具：`%USERPROFILE%\qt-wasm-host\6.8.3\mingw_64`
+
+#### 3. 编译 geomTool-qt WASM 版
+
+用项目自带的 `build-wasm.bat`（自动激活 emsdk、配置 cmake、ninja 构建）：
 
 ```cmd
 cd C:\path\to\geomTool-qt
-mkdir build-wasm && cd build-wasm
-call emsdk_env.bat
-cmake -G Ninja ^
-  -DCMAKE_BUILD_TYPE=Release ^
-  -DCMAKE_TOOLCHAIN_FILE=%EMSDK%\upstream\emscripten\cmake\Modules\Platform\Emscripten.cmake ^
-  -DCMAKE_PREFIX_PATH=%USERPROFILE%\qt-wasm ^
-  -DQT_HOST_PATH=C:\Qt\6.8.3\mingw_64 ^
-  -DWASM_BUILD=ON ^
-  ..
-cmake --build . --parallel %NUMBER_OF_PROCESSORS%
+build-wasm.bat
 ```
 
-#### 5. 运行
+或手动等价命令：
+
+```cmd
+cd C:\path\to\geomTool-qt
+call %USERPROFILE%\emsdk\emsdk_env.bat
+cmake -G Ninja -B build-wasm -S . ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_TOOLCHAIN_FILE=%USERPROFILE%\emsdk\upstream\emscripten\cmake\Modules\Platform\Emscripten.cmake ^
+  -DCMAKE_PREFIX_PATH=%USERPROFILE%\qt-wasm\6.8.3\wasm_singlethread ^
+  -DCMAKE_FIND_ROOT_PATH=%USERPROFILE%\qt-wasm\6.8.3\wasm_singlethread ^
+  -DQT_HOST_PATH=%USERPROFILE%\qt-wasm-host\6.8.3\mingw_64 ^
+  -DWASM_BUILD=ON
+cmake --build build-wasm --parallel %NUMBER_OF_PROCESSORS%
+```
+
+#### 4. 运行
 
 ```cmd
 cd build-wasm
@@ -408,12 +421,20 @@ python -m http.server 8080
 :: 浏览器访问 http://localhost:8080/geomTool.html
 ```
 
+> ⚠️ 必须通过 HTTP 服务器访问，不能直接用 `file://` 打开（浏览器安全限制）。
+
+<details>
+<summary>备选：从源码编译 Qt6 WASM 版（不推荐，耗时且有已知补丁）</summary>
+
+若无法使用 aqt 预编译版，可参考上方 macOS 章节的源码编译流程，把 `QT_HOST_PATH` 指向桌面 Qt 安装路径。注意 Qt 6.8.3 的 `qwasmtheme.cpp` 缺 `#include <QPalette>`，需手动补上。
+</details>
+
 ### WASM 输出文件
 
 | 文件 | 说明 |
 |------|------|
-| `geomTool.wasm` | 编译后的 WebAssembly 二进制（~1.5 MB） |
-| `geomTool.js`   | JavaScript 胶水代码 + Qt 运行时（~3.7 MB） |
+| `geomTool.wasm` | 编译后的 WebAssembly 二进制（Release 约 10–15 MB，随构建配置浮动） |
+| `geomTool.js`   | JavaScript 胶水代码 + Qt 运行时加载器 |
 | `geomTool.html` | HTML 加载页面 |
 
 ### WASM 平台差异
