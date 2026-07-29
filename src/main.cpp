@@ -1,5 +1,7 @@
 #include <QApplication>
 #include <QSurfaceFormat>
+#include <QFontDatabase>
+#include <QFont>
 #include <cstring>
 #include "MainWindow.h"
 #include "CanvasWidget.h"
@@ -21,6 +23,16 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("GeomTool");
     app.setOrganizationName("kaige");
+
+    // Load embedded font (needed for WASM where no system fonts exist)
+    int fontId = QFontDatabase::addApplicationFont(":/fonts/HiraginoSansGB-Subset.ttf");
+    if (fontId != -1) {
+        QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) {
+            QFont appFont(families.first(), 10);
+            app.setFont(appFont);
+        }
+    }
 
     MainWindow window;
     window.show();

@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
+        <file>fonts/HiraginoSansGB-Subset.ttf</file>
         <file>icons/sphere.svg</file>
         <file>icons/cube.svg</file>
         <file>icons/cylinder.svg</file>
