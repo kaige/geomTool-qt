@@ -9,7 +9,13 @@
 #include <QPainter>
 #include <QFile>
 #include <QComboBox>
+#include <QAbstractItemView>
+#include <QListView>
+#include <QStylePainter>
+#include <QStyleOptionComboBox>
 #include <QEvent>
+#include <QTabBar>
+#include <QResizeEvent>
 #include <QWindow>       // [hover/WASM] windowHandle()->requestUpdate()
 #include <QPaintEvent>
 
@@ -19,6 +25,88 @@
 #else
 #define HAVE_SVG 0
 #endif
+
+// QListView used as the language popup. On WASM (single-thread) the
+// item-follows-mouse highlight repaint isn't flushed to the canvas — same root
+// cause as HoverToolButton (see memory: qt-wasm-hover-pseudostate) — so only the
+// always-selected current language lights up and the other item never highlights
+// on hover. Force a viewport repaint + window flush right after the current
+// index updates. Harmless on desktop (the flush is WASM-only).
+class WasmHoverListView : public QListView {
+public:
+    using QListView::QListView;
+protected:
+    void mouseMoveEvent(QMouseEvent* e) override {
+        QListView::mouseMoveEvent(e);   // updates current index → queues repaint
+#ifdef Q_OS_WASM
+        if (QWidget* vp = viewport()) {
+            vp->repaint();   // paint the now-current item immediately
+            if (QWidget* tl = vp->window())
+                if (QWindow* wh = tl->windowHandle()) wh->requestUpdate();
+        }
+#endif
+    }
+};
+
+// QComboBox whose collapsed box shows a globe + short label ("中"/"En"), while
+// the popup lists the full language names ("中文"/"English") with no icon. Done
+// by overriding the style option's current text/icon right before painting the
+// collapsed control; the popup reads the model items, which keep full text and
+// no icon. No Q_OBJECT / moc needed — only paintEvent + sizeHint overridden.
+class LangComboBox : public QComboBox {
+public:
+    explicit LangComboBox(QWidget* parent = nullptr) : QComboBox(parent) {
+        // Globe icon built once (drawn, so it works without an icon theme).
+        QPixmap pix(20, 20);
+        pix.fill(Qt::transparent);
+        QPainter gp(&pix);
+        gp.setRenderHint(QPainter::Antialiasing);
+        gp.setPen(QPen(QColor("#888"), 1.5));
+        gp.setBrush(Qt::NoBrush);
+        gp.drawEllipse(4, 3, 12, 14);   // outer circle
+        gp.drawLine(4, 10, 16, 10);     // equator
+        gp.drawEllipse(7, 3, 6, 14);    // meridian ellipse
+        gp.end();
+        m_globe = QIcon(pix);
+    }
+
+    QSize sizeHint() const override {
+        // Snug to globe + short label (constant, so the box doesn't resize when
+        // toggling "中"↔"En"); the popup sizes itself via its own min-width.
+        const int w = 16 /*icon*/ + 4 /*icon-text gap*/ +
+                      fontMetrics().horizontalAdvance(QStringLiteral("En")) +
+                      14 /*frame + padding slack*/;
+        return QSize(w, QComboBox::sizeHint().height());
+    }
+
+protected:
+    void showPopup() override {
+        QComboBox::showPopup();
+        // Force the popup to sit just below the collapsed combo. The default
+        // placement aligns the current item over the combo, which overlaps and
+        // covers the globe + "中"/"En" label.
+        if (auto* v = view()) {
+            if (QWidget* container = v->parentWidget())   // QComboBoxPrivateContainer
+                container->move(mapToGlobal(QPoint(0, height() + 2)));
+        }
+    }
+
+    void paintEvent(QPaintEvent*) override {
+        QStyleOptionComboBox opt;
+        initStyleOption(&opt);
+        // Collapsed display: globe icon + short label (popup keeps full names, no icon).
+        opt.currentText = (currentIndex() == 0) ? QStringLiteral("中")
+                                                : QStringLiteral("En");
+        opt.currentIcon = m_globe;
+        opt.iconSize = QSize(16, 16);
+        QStylePainter sp(this);
+        sp.drawComplexControl(QStyle::CC_ComboBox, opt);
+        sp.drawControl(QStyle::CE_ComboBoxLabel, opt);
+    }
+
+private:
+    QIcon m_globe;
+};
 
 bool HoverToolButton::event(QEvent* e) {
     const bool res = QToolButton::event(e);
@@ -105,16 +193,15 @@ ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
 
     mainLayout->addWidget(tabs);
 
-    // Language selector in corner
+    // Language selector: anchored top-right over the tab bar. QTabWidget corner
+    // widgets can't be positioned freely, so langCombo is an overlay child of
+    // this widget, positioned manually by repositionLangCombo() on resize/show.
     setupLanguageSelector();
-    auto* cornerWidget = new QWidget;
-    auto* cornerLayout = new QHBoxLayout(cornerWidget);
-    cornerLayout->setContentsMargins(4, 0, 12, 0);
-    cornerLayout->setSpacing(0);
-    cornerLayout->addWidget(langCombo);
-    tabs->setCornerWidget(cornerWidget, Qt::TopRightCorner);
+    langCombo->setParent(this);
+    langCombo->raise();
 
     retranslateUi();
+    repositionLangCombo();   // best-effort initial placement (resizeEvent refines)
 }
 
 QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& iconColor) {
@@ -290,31 +377,19 @@ void ToolbarWidget::setupLanguageSelector() {
     // selector froze the whole app (see memory: qt-wasm-modal-exec-deadlock).
     // QComboBox's popup is non-modal (container show()/hide(), event-driven
     // selection, no exec), so it works on WASM. Desktop behaviour is unchanged.
-    // Matches geomTool (React) LanguageSelector: globe icon + label, no arrow.
-    langCombo = new QComboBox;
+    // Collapsed box shows globe + "中"/"En"; the popup lists the full names
+    // "中文"/"English" with no icon (LangComboBox overrides paintEvent).
+    langCombo = new LangComboBox(this);
     langCombo->setCursor(Qt::PointingHandCursor);
     langCombo->addItem(QStringLiteral("中文"),   static_cast<int>(Language::ZH));
     langCombo->addItem(QStringLiteral("English"), static_cast<int>(Language::EN));
 
-    // Globe icon (drawn, so it works cross-platform without an icon theme).
-    QPixmap globePix(20, 20);
-    globePix.fill(Qt::transparent);
-    {
-        QPainter gp(&globePix);
-        gp.setRenderHint(QPainter::Antialiasing);
-        gp.setPen(QPen(QColor("#888"), 1.5));
-        gp.setBrush(Qt::NoBrush);
-        gp.drawEllipse(4, 3, 12, 14);        // outer circle
-        gp.drawLine(4, 10, 16, 10);          // equator
-        gp.drawEllipse(7, 3, 6, 14);         // meridian ellipse
-        gp.end();
-    }
-    const QIcon globeIcon(globePix);
-    langCombo->setItemIcon(0, globeIcon);
-    langCombo->setItemIcon(1, globeIcon);
-    langCombo->setIconSize(QSize(16, 16));
-
     langCombo->setCurrentIndex(0);  // Chinese by default
+
+    // WASM: the popup list's item-follows-mouse highlight isn't flushed to the
+    // canvas (only the always-selected current language lights up). Use a view
+    // subclass that forces a viewport repaint + window flush on mouse-move.
+    langCombo->setView(new WasmHoverListView(langCombo));
 
     langCombo->setStyleSheet(
         "QComboBox {"
@@ -326,7 +401,7 @@ void ToolbarWidget::setupLanguageSelector() {
         "}"
         "QComboBox:hover { background-color: #f3f2f1; }"
         "QComboBox:on    { background-color: #edebe9; }"
-        // Hide the drop-down arrow to keep the compact globe + label look
+        // Hide the drop-down arrow — the box reads as a compact "中"/"En" label.
         // (mirrors geomTool's menu-indicator: image:none). Click still opens it.
         "QComboBox::drop-down { border: none; width: 0; }"
         "QComboBox QAbstractItemView {"
@@ -390,4 +465,30 @@ void ToolbarWidget::updateButtonStates() {
     // Enable/disable manage buttons
     btnDeleteSelected->setEnabled(!g_store.selectedShapeId.empty());
     btnClearAll->setEnabled(g_store.shapeCount() > 0);
+}
+
+void ToolbarWidget::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    repositionLangCombo();
+}
+
+void ToolbarWidget::repositionLangCombo() {
+    // Anchor the language combo to the top-right of the tab bar row, vertically
+    // centered within the tab bar. langCombo is an off-layout overlay child, so
+    // its geometry is set entirely here. QTabWidget::tabBar() is protected, so
+    // reach the tab bar via the object tree.
+    if (!langCombo)
+        return;
+
+    langCombo->resize(langCombo->sizeHint());
+
+    int barHeight = 0;
+    if (QTabBar* bar = tabs->findChild<QTabBar*>())
+        barHeight = bar->height();
+
+    const int rightMargin = 12;   // matches the original corner-widget inset
+    const int x = width() - langCombo->width() - rightMargin;
+    const int y = barHeight > 0 ? (barHeight - langCombo->height()) / 2 : 0;
+    langCombo->move(x, qMax(0, y));
+    langCombo->raise();
 }

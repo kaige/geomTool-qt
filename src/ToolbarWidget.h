@@ -11,6 +11,7 @@
 class MainWindow;
 class QEvent;
 class QPaintEvent;
+class QResizeEvent;
 
 // QToolButton whose hover/active look works on WebAssembly. Two Qt 6.8.x WASM
 // (single-thread) problems defeat the default :hover stylesheet styling, fixed
@@ -36,6 +37,9 @@ class ToolbarWidget : public QWidget {
 public:
     explicit ToolbarWidget(MainWindow* mw, QWidget* parent = nullptr);
     void refresh();
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     MainWindow* mainWindow;
@@ -64,6 +68,7 @@ private:
     void setupManageTab();
     void setupLanguageSelector();
     void retranslateUi();
+    void repositionLangCombo();   // center the language combo over the tab bar
 
     QToolButton* createToolButton(const QString& text, const QString& iconName, const QString& iconColor);
     QIcon makeSvgIcon(const QString& iconName, const QString& color);
