@@ -1,5 +1,5 @@
-# Build files
-build/
+# Build files (any cmake build dir: build/, build-gl/, build-wasm/, ...)
+build*/
 *.o
 *.obj
 aqtinstall.log
@@ -20,4 +20,3 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
-build-wasm/

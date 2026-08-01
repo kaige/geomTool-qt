@@ -11,11 +11,13 @@ public class W2 {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
-$out = "C:\code\geomTool-qt\build-gl\shot.png"
 $procs = Get-Process -Name geomTool -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }
 $p = $procs | Where-Object { $_.MainWindowTitle -like "*DEMO*" } | Select-Object -First 1
 if (-not $p) { $p = $procs | Select-Object -First 1 }
 if (-not $p) { Write-Output "geomTool process not found"; exit 1 }
+# Write shot.png next to the running geomTool.exe (works for any build dir).
+$exeDir = if ($p.Path) { Split-Path $p.Path -Parent } else { Join-Path $PSScriptRoot '..\build' }
+$out = Join-Path $exeDir 'shot.png'
 $h = $p.MainWindowHandle
 [W2]::ShowWindowAsync($h, 9) | Out-Null      # SW_RESTORE
 [W2]::SetForegroundWindow($h) | Out-Null
