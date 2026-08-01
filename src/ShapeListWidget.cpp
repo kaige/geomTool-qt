@@ -1,6 +1,7 @@
 #include "ShapeListWidget.h"
 #include "MainWindow.h"
 #include "GeometryStore.h"
+#include "CanvasWidget.h"   // [hover/WASM] g_canvas, used to flush the frame
 #include "I18n.h"
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -10,6 +11,80 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPainterPath>
+#include <QWindow>          // [hover/WASM] windowHandle()->requestUpdate()
+#include <QMouseEvent>
+
+// HoverRowTable -- paints a single light-blue rectangle outline around the
+// whole hovered row, on both desktop and WASM.
+//
+// Why a custom class (not QSS ::item:hover):
+//  1. The QSS :hover pseudo-state never repaints on WASM (see memory:
+//     qt-wasm-hover-pseudostate), so a stylesheet rule would show on desktop
+//     only -- exactly the bug reported (WASM has no row hover).
+//  2. We want ONE outline framing the entire row (type + ID + actions),
+//     replacing the old fragmented look where each cell/icon lit up on its own.
+//
+// So: track the hovered row ourselves via the viewport's mouse/leave events,
+// draw the outline in paintEvent over the base paint, and on WASM force a
+// window flush (hover-event repaints are otherwise never presented to the
+// canvas -- same fix HoverToolButton uses).
+class HoverRowTable : public QTableWidget {
+public:
+    explicit HoverRowTable(QWidget* parent = nullptr) : QTableWidget(parent) {
+        setMouseTracking(true);
+        viewport()->setMouseTracking(true);
+        viewport()->installEventFilter(this);
+    }
+
+protected:
+    bool eventFilter(QObject* o, QEvent* e) override {
+        if (o == viewport()) {
+            if (e->type() == QEvent::MouseMove) {
+                auto* me = static_cast<QMouseEvent*>(e);
+                setHoverRow(rowAt(me->position().toPoint().y()));
+            } else if (e->type() == QEvent::Leave) {
+                setHoverRow(-1);   // mouse moved to the header or out of the table
+            }
+        }
+        return QTableWidget::eventFilter(o, e);
+    }
+
+    void paintEvent(QPaintEvent* e) override {
+        QTableWidget::paintEvent(e);
+        if (m_hoverRow < 0 || m_hoverRow >= rowCount())
+            return;
+        // Full-row rect in viewport coords: x=0..width, y/height from the row.
+        const QRect r(0, rowViewportPosition(m_hoverRow),
+                      viewport()->width(), rowHeight(m_hoverRow));
+        if (r.isNull() || r.height() <= 0)
+            return;
+        QPainter p(viewport());
+        p.setRenderHint(QPainter::Antialiasing, false);
+        // Light-blue rectangle outline framing the whole row (no fill).
+        p.setPen(QPen(QColor(QStringLiteral("#5aa9e6")), 1));
+        p.setBrush(Qt::NoBrush);
+        // Inset 0.5px so the 1px stroke lands on pixel boundaries (crisp).
+        p.drawRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5));
+    }
+
+private:
+    int m_hoverRow = -1;
+
+    void setHoverRow(int row) {
+        if (row == m_hoverRow)
+            return;
+        m_hoverRow = row;
+        viewport()->repaint();
+#ifdef Q_OS_WASM
+        // Hover-triggered repaints aren't flushed to the WASM canvas by default;
+        // request a top-level window update so the dirty row is composited and
+        // presented. Nudge the GL canvas too so it stays in the same frame.
+        if (QWidget* tl = window())
+            if (QWindow* wh = tl->windowHandle()) wh->requestUpdate();
+        if (g_canvas) g_canvas->update();
+#endif
+    }
+};
 
 ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
     : QWidget(parent), mainWindow(mw)
@@ -27,7 +102,7 @@ ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
     layout->addWidget(headerLabel);
 
     // Table
-    table = new QTableWidget;
+    table = new HoverRowTable;
     table->setColumnCount(3);   // Type, ID, Actions (eye + trash)
     table->verticalHeader()->setVisible(false);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -39,6 +114,11 @@ ShapeListWidget::ShapeListWidget(MainWindow* mw, QWidget* parent)
     table->setStyleSheet(
         "QTableWidget { border: none; background: white; }"
         "QTableWidget::item { padding: 6px 10px; }"
+        // Suppress the native per-cell hover fill on desktop (Fusion paints a
+        // hover background for the item under the cursor). Hover feedback is the
+        // whole-row outline drawn by HoverRowTable, not a per-cell highlight.
+        // (No effect on WASM, where :hover never repaints anyway.)
+        "QTableWidget::item:hover { background-color: transparent; }"
         "QTableWidget::item:selected { background-color: #d4e9f7; color: #333; font-weight: 600; }"
         "QHeaderView::section { padding: 8px 10px; background: #f5f5f5; border: none; "
         "border-bottom: 1px solid #e1dfdd; font-weight: 600; font-size: 13px; }"
@@ -96,6 +176,13 @@ void ShapeListWidget::refresh() {
     auto& i18n = I18n::instance();
 
     QSignalBlocker blocker(table);
+
+    // Clear stale selection first; the loop below re-selects the row matching
+    // selectedShapeId. Without this, deselecting an object on the canvas leaves
+    // the previously highlighted row highlighted (QTableWidget keeps row-level
+    // selection across item rebuilds).
+    table->clearSelection();
+    table->setCurrentCell(-1, -1);
 
     bool hasShapes = !g_store.shapes.empty();
     table->setVisible(hasShapes);
@@ -180,9 +267,10 @@ void ShapeListWidget::refresh() {
             eyeBtn->setFixedSize(30, 30);
             eyeBtn->setIcon(makeEyeIcon(shape->visible));
             eyeBtn->setIconSize(QSize(24, 24));
+            // No per-button hover background: hover feedback is the whole-row
+            // outline drawn by HoverRowTable, not individual icon highlights.
             eyeBtn->setStyleSheet(
                 "QToolButton { border: none; border-radius: 4px; }"
-                "QToolButton:hover { background-color: #f3f2f1; }"
             );
             eyeBtn->setToolTip(QString::fromStdString(i18n.t(shape->visible ? "hide" : "show")));
 
@@ -205,7 +293,6 @@ void ShapeListWidget::refresh() {
             trashBtn->setIconSize(QSize(24, 24));
             trashBtn->setStyleSheet(
                 "QToolButton { border: none; border-radius: 4px; }"
-                "QToolButton:hover { background-color: #e8e8e8; }"
             );
             trashBtn->setToolTip(QString::fromStdString(i18n.t("deleteSelected")));
 
