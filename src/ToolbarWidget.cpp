@@ -8,7 +8,7 @@
 #include <QStyle>
 #include <QPainter>
 #include <QFile>
-#include <QMenu>
+#include <QComboBox>
 #include <QEvent>
 #include <QWindow>       // [hover/WASM] windowHandle()->requestUpdate()
 #include <QPaintEvent>
@@ -111,7 +111,7 @@ ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     auto* cornerLayout = new QHBoxLayout(cornerWidget);
     cornerLayout->setContentsMargins(4, 0, 12, 0);
     cornerLayout->setSpacing(0);
-    cornerLayout->addWidget(langButton);
+    cornerLayout->addWidget(langCombo);
     tabs->setCornerWidget(cornerWidget, Qt::TopRightCorner);
 
     retranslateUi();
@@ -282,13 +282,21 @@ void ToolbarWidget::setupManageTab() {
 }
 
 void ToolbarWidget::setupLanguageSelector() {
-    // Compact button: globe icon + "中"/"En", click opens popup menu.
-    // Matches geomTool (React) LanguageSelector: Icon(Globe) + short label, no arrow.
-    langButton = new HoverToolButton;
-    langButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    langButton->setPopupMode(QToolButton::InstantPopup);
+    // Language dropdown built from QComboBox (Qt's built-in combo box).
+    //
+    // Why not QToolButton + QMenu: QToolButton::InstantPopup shows the menu via
+    // QMenu::exec(), a blocking nested event loop. On Qt 6.8.3 WASM built without
+    // asyncify (aqt prebuilt), that nested loop deadlocks the page — clicking the
+    // selector froze the whole app (see memory: qt-wasm-modal-exec-deadlock).
+    // QComboBox's popup is non-modal (container show()/hide(), event-driven
+    // selection, no exec), so it works on WASM. Desktop behaviour is unchanged.
+    // Matches geomTool (React) LanguageSelector: globe icon + label, no arrow.
+    langCombo = new QComboBox;
+    langCombo->setCursor(Qt::PointingHandCursor);
+    langCombo->addItem(QStringLiteral("中文"),   static_cast<int>(Language::ZH));
+    langCombo->addItem(QStringLiteral("English"), static_cast<int>(Language::EN));
 
-    // Globe icon: use emoji as icon text prefix (works cross-platform without icon theme)
+    // Globe icon (drawn, so it works cross-platform without an icon theme).
     QPixmap globePix(20, 20);
     globePix.fill(Qt::transparent);
     {
@@ -297,60 +305,49 @@ void ToolbarWidget::setupLanguageSelector() {
         gp.setPen(QPen(QColor("#888"), 1.5));
         gp.setBrush(Qt::NoBrush);
         gp.drawEllipse(4, 3, 12, 14);        // outer circle
-        gp.drawLine(4, 10, 16, 10);           // equator
-        gp.drawEllipse(7, 3, 6, 14);          // meridian ellipse
+        gp.drawLine(4, 10, 16, 10);          // equator
+        gp.drawEllipse(7, 3, 6, 14);         // meridian ellipse
         gp.end();
     }
-    langButton->setIcon(QIcon(globePix));
-    langButton->setIconSize(QSize(17, 17));
-    langButton->setStyleSheet(
-        "QToolButton {"
+    const QIcon globeIcon(globePix);
+    langCombo->setItemIcon(0, globeIcon);
+    langCombo->setItemIcon(1, globeIcon);
+    langCombo->setIconSize(QSize(16, 16));
+
+    langCombo->setCurrentIndex(0);  // Chinese by default
+
+    langCombo->setStyleSheet(
+        "QComboBox {"
         "  border: 1px solid transparent;"
         "  border-radius: 4px;"
-        "  padding: 2px 6px;"
-        "  font-size: 14px;"
+        "  padding: 2px 4px;"
+        "  font-size: 13px;"
         "  background: transparent;"
         "}"
-        "QToolButton::menu-indicator { image: none; }"  // hide arrow, like geomTool
-        "QToolButton:hover { background-color: #f3f2f1; }"
-        "QToolButton:pressed { background-color: #edebe9; }"
-        "QToolButton::menu {"
+        "QComboBox:hover { background-color: #f3f2f1; }"
+        "QComboBox:on    { background-color: #edebe9; }"
+        // Hide the drop-down arrow to keep the compact globe + label look
+        // (mirrors geomTool's menu-indicator: image:none). Click still opens it.
+        "QComboBox::drop-down { border: none; width: 0; }"
+        "QComboBox QAbstractItemView {"
         "  font-size: 12px;"
-        "  min-width: 80px;"
+        "  min-width: 90px;"
+        "  border: 1px solid #d0d0d0;"
+        "  background: #ffffff;"
+        "  selection-background-color: #e8e8e8;"
+        "  selection-color: #333;"
+        "  outline: none;"
         "}"
     );
 
-    auto* menu = new QMenu(langButton);
-    menu->setStyleSheet(
-        "QMenu { font-size: 12px; min-width: 80px; padding: 4px; }"
-        "QMenu::item { padding: 6px 16px; }"
-        "QMenu::item:selected { background-color: #e8e8e8; color: #333; }"
-    );
-    auto* actZh = menu->addAction(QString::fromStdString(I18n::instance().t("chinese")));
-    auto* actEn = menu->addAction(QString::fromStdString(I18n::instance().t("english")));
-    actZh->setData((int)Language::ZH);
-    actEn->setData((int)Language::EN);
-    actZh->setCheckable(true);
-    actEn->setCheckable(true);
-
-    langButton->setMenu(menu);
-
-    QObject::connect(menu, &QMenu::triggered, [this](QAction* action) {
-        Language lang = (Language)action->data().toInt();
-        I18n::instance().setLanguage(lang);
-        retranslateUi();   // also updates menu check marks + button text
-    });
-
-    // Set initial check
-    actZh->setChecked(true);
-
-    updateLangButtonText();
-}
-
-void ToolbarWidget::updateLangButtonText() {
-    // Show "中" for Chinese, "En" for English — exactly like geomTool
-    auto& i18n = I18n::instance();
-    langButton->setText(i18n.getLanguage() == Language::ZH ? QStringLiteral("中") : QStringLiteral("En"));
+    // activated() fires only on user interaction — never on setCurrentIndex —
+    // so retranslateUi() (which calls setCurrentIndex) cannot recurse into here.
+    QObject::connect(langCombo, QOverload<int>::of(&QComboBox::activated),
+        [this](int index) {
+            Language lang = static_cast<Language>(langCombo->itemData(index).toInt());
+            I18n::instance().setLanguage(lang);
+            retranslateUi();
+        });
 }
 
 void ToolbarWidget::retranslateUi() {
@@ -369,15 +366,11 @@ void ToolbarWidget::retranslateUi() {
     btnDeleteSelected->setText(QString::fromStdString(i18n.t("deleteSelected")));
     btnClearAll->setText(QString::fromStdString(i18n.t("clearAll")));
 
-    // Update language button label and menu check marks
-    updateLangButtonText();
-    auto* menu = langButton->menu();
-    if (menu) {
-        for (auto* act : menu->actions()) {
-            Language lang = (Language)act->data().toInt();
-            act->setChecked(i18n.getLanguage() == lang);
-        }
-    }
+    // Keep the language combo's selected index in sync with the current language.
+    // setCurrentIndex does NOT emit activated(), so this cannot recurse into the
+    // combo's handler. Item texts ("中文"/"English") are fixed in each language's
+    // own script, so they never need retranslating.
+    langCombo->setCurrentIndex(i18n.getLanguage() == Language::ZH ? 0 : 1);
 }
 
 void ToolbarWidget::refresh() {

@@ -6,6 +6,7 @@
 #include <QButtonGroup>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QComboBox>
 
 class MainWindow;
 class QEvent;
@@ -55,14 +56,14 @@ private:
     QToolButton* btnDeleteSelected;
     QToolButton* btnClearAll;
 
-    // Language selector (globe + compact text, popup menu)
-    QToolButton* langButton;
+    // Language selector — QComboBox dropdown. Its popup is non-modal (no
+    // QMenu::exec()), so it doesn't deadlock Qt 6.8.3 WASM (no asyncify).
+    QComboBox* langCombo;
 
     void setupCreateTab();
     void setupManageTab();
     void setupLanguageSelector();
     void retranslateUi();
-    void updateLangButtonText();
 
     QToolButton* createToolButton(const QString& text, const QString& iconName, const QString& iconColor);
     QIcon makeSvgIcon(const QString& iconName, const QString& color);
