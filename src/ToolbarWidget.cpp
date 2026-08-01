@@ -9,6 +9,9 @@
 #include <QPainter>
 #include <QFile>
 #include <QMenu>
+#include <QEvent>
+#include <QWindow>       // [hover/WASM] windowHandle()->requestUpdate()
+#include <QPaintEvent>
 
 #if __has_include(<QSvgRenderer>)
 #include <QSvgRenderer>
@@ -16,6 +19,60 @@
 #else
 #define HAVE_SVG 0
 #endif
+
+bool HoverToolButton::event(QEvent* e) {
+    const bool res = QToolButton::event(e);
+    switch (e->type()) {
+    case QEvent::Enter:
+    case QEvent::Leave:
+    case QEvent::HoverEnter:
+    case QEvent::HoverLeave:
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+        // Repaint on hover/click transitions; paintEvent draws the hover/active
+        // look manually (the QSS :hover/:checked states don't repaint on WASM).
+        repaint();
+#ifdef Q_OS_WASM
+        // On WASM, plain toolbar repaints aren't flushed to the canvas on hover
+        // events (only mouse-button/key events trigger that flush), so request a
+        // full top-level window update: Qt then composites the dirty toolbar into
+        // the backing store and flushes the window to the canvas. Nudge the canvas
+        // too so its GL content stays composited in the same frame.
+        if (QWidget* tl = window())
+            if (QWindow* wh = tl->windowHandle()) wh->requestUpdate();
+        if (g_canvas) g_canvas->update();
+#endif
+        break;
+    default:
+        break;
+    }
+    return res;
+}
+
+void HoverToolButton::paintEvent(QPaintEvent* e) {
+#ifdef Q_OS_WASM
+    // The QSS :hover/:checked pseudo-states don't repaint on WASM, so draw the
+    // state background+border here from underMouse()/isChecked(), then let the
+    // base class paint icon+text on top. Desktop keeps using the stylesheet.
+    QColor bg, bd;
+    if (isChecked()) {
+        bg = QColor(QStringLiteral("#d4e9f7"));
+        bd = QColor(QStringLiteral("#b0d8f0"));
+    } else if (underMouse() && isEnabled()) {
+        bg = QColor(QStringLiteral("#e8e8e8"));
+        bd = QColor(QStringLiteral("#d0d0d0"));
+    }
+    if (bg.isValid()) {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const QRectF rr = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+        p.setPen(QPen(bd, 1));
+        p.setBrush(bg);
+        p.drawRoundedRect(rr, 4, 4);
+    }
+#endif
+    QToolButton::paintEvent(e);
+}
 
 ToolbarWidget::ToolbarWidget(MainWindow* mw, QWidget* parent)
     : QWidget(parent), mainWindow(mw)
@@ -110,7 +167,7 @@ QIcon ToolbarWidget::makeSvgIcon(const QString& iconName, const QString& iconCol
 }
 
 QToolButton* ToolbarWidget::createToolButton(const QString& text, const QString& iconName, const QString& iconColor) {
-    auto* btn = new QToolButton;
+    auto* btn = new HoverToolButton;
     btn->setText(text);
     btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     // Wider to fit English labels like "Circular Arc", "Delete Selected"
@@ -227,7 +284,7 @@ void ToolbarWidget::setupManageTab() {
 void ToolbarWidget::setupLanguageSelector() {
     // Compact button: globe icon + "中"/"En", click opens popup menu.
     // Matches geomTool (React) LanguageSelector: Icon(Globe) + short label, no arrow.
-    langButton = new QToolButton;
+    langButton = new HoverToolButton;
     langButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     langButton->setPopupMode(QToolButton::InstantPopup);
 
