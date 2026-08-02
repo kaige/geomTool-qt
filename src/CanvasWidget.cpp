@@ -685,6 +685,116 @@ void CanvasWidget::drawShape(BaseShape* shape) {
             return;
         }
 
+        // --- Torus rendering ----------------------------------------
+        // 4 path-ring arcs (every 90° around the tube) and the silhouette
+        // (mesh edges where a front-facing quad meets a back-facing quad)
+        // are drawn solid only where actually visible. Both are occlusion-
+        // tested against the torus body, so hidden parts — e.g. the far side
+        // of the hole outline behind the near tube — are omitted.
+        // Visibility uses an occlusion test, not surface-normal facing: the
+        // torus is non-convex, so an inward-facing patch of the inner ring
+        // can be visible through the hole while a front-facing patch is
+        // hidden behind the near side. A surface point Q is hidden iff it
+        // is the far surface along the view ray — stepping a little toward
+        // the camera then lands inside the tube.
+        if (shape->type == ShapeType::Torus) {
+            const float R = 1.0f, r = 0.4f;
+            constexpr int segMajor = 48;  // segments per major-ring arc
+
+            auto localPt = [&](float u, float v) {
+                return modelMat.transformPoint({(R + r * std::cos(v)) * std::cos(u),
+                                                 r * std::sin(v),
+                                                 (R + r * std::cos(v)) * std::sin(u)});
+            };
+
+            // Torus solid in world space, for the visibility test.
+            const float scale = modelMat.transformDir({1.0f, 0.0f, 0.0f}).length();
+            const Vec3 axisN = modelMat.transformDir({0.0f, 1.0f, 0.0f}).normalized();
+            const float wR = R * scale, wr = r * scale;
+            const float boundR = wR + wr;   // torus bounding-sphere radius
+
+            // The camera is orthographic, so every view ray is parallel to
+            // `forward` — NOT a perspective ray through the camera position.
+            // A surface point Q is hidden iff the torus occludes itself along
+            // that parallel ray: P(t) = Q + t*forward (t<0 toward the camera)
+            // reaches the tube solid before Q. (Local near/far facing is not
+            // enough: a near-facing patch on the far side of the ring is
+            // hidden behind the near side; and a camera-position ray would be
+            // the wrong ray for off-axis points such as the side cross-
+            // sections.) Bounded march over the chord inside the bounding
+            // sphere; the tube is at most ~2*wr across so a 0.5*wr step
+            // catches any real occluder, with early exit on the first hit.
+            auto isOccluded = [&](const Vec3& Q) {
+                Vec3 relQ = Q - center;
+                float rq = relQ.dot(forward);
+                float disc = rq * rq - relQ.dot(relQ) + boundR * boundR;
+                if (disc <= 0.0f) return false;          // Q outside bounding sphere
+                float tNear = -rq - std::sqrt(disc);     // < 0: camera-side entry
+                const float step = 0.5f * wr;
+                const float wr2 = wr * wr;
+                for (float t = tNear; t < -0.5f * wr; t += step) {
+                    Vec3 rel = (Q + forward * t) - center;
+                    float along = rel.dot(axisN);
+                    float radial = (rel - axisN * along).length();
+                    if ((radial - wR) * (radial - wR) + along * along < wr2)
+                        return true;                     // occluder before Q
+                }
+                return false;
+            };
+
+            // --- 4 path-ring arcs: draw only the visible segments (solid) ---
+            auto drawVisibleCircle = [&](int segs, auto ptAt) {
+                QPointF prev = worldToScreen(ptAt(0.0f));
+                for (int i = 0; i < segs; ++i) {
+                    float midp = 2.0f * M_PI * (i + 0.5f) / segs;
+                    QPointF cur = worldToScreen(ptAt(2.0f * M_PI * (i + 1) / segs));
+                    if (!isOccluded(ptAt(midp)))
+                        renderer.addLine(prev, cur, drawColor, hwWire, false);
+                    prev = cur;
+                }
+            };
+            for (int k = 0; k < 4; ++k) {
+                float v = 2.0f * M_PI * k / 4;
+                drawVisibleCircle(segMajor, [&](float u) { return localPt(u, v); });
+            }
+
+            // --- Silhouette: grid edges on the front/back facing boundary ---
+            constexpr int Nu = 64, Nv = 32;
+            std::vector<Vec3> grid(size_t(Nu) * Nv);
+            std::vector<unsigned char> front(size_t(Nu) * Nv);
+            for (int i = 0; i < Nu; ++i)
+                for (int j = 0; j < Nv; ++j)
+                    grid[size_t(i) * Nv + j] =
+                        localPt(2.0f * M_PI * i / Nu, 2.0f * M_PI * j / Nv);
+            auto G = [&](int i, int j) -> const Vec3& {
+                return grid[size_t((i + Nu) % Nu) * Nv + size_t((j + Nv) % Nv)];
+            };
+            for (int i = 0; i < Nu; ++i)
+                for (int j = 0; j < Nv; ++j) {
+                    Vec3 n = (G(i + 1, j) - G(i, j)).cross(G(i, j + 1) - G(i, j));
+                    front[size_t(i) * Nv + j] = (n.dot(forward) < 0.0f) ? 1 : 0;
+                }
+            auto F = [&](int i, int j) -> bool {
+                return front[size_t((i + Nu) % Nu) * Nv + size_t((j + Nv) % Nv)] != 0;
+            };
+            for (int i = 0; i < Nu; ++i)
+                for (int j = 0; j < Nv; ++j) {
+                    if (F(i, j) != F(i, j - 1)) {
+                        Vec3 mid = (G(i, j) + G(i + 1, j)) * 0.5f;
+                        if (!isOccluded(mid))
+                            renderer.addLine(worldToScreen(G(i, j)), worldToScreen(G(i + 1, j)),
+                                             drawColor, hwWire, false);
+                    }
+                    if (F(i, j) != F(i - 1, j)) {
+                        Vec3 mid = (G(i, j) + G(i, j + 1)) * 0.5f;
+                        if (!isOccluded(mid))
+                            renderer.addLine(worldToScreen(G(i, j)), worldToScreen(G(i, j + 1)),
+                                             drawColor, hwWire, false);
+                    }
+                }
+            return;
+        }
+
         for (size_t j = 0; j < edges.size(); j += 2) {
             Vec3 p1 = modelMat.transformPoint(edges[j]);
             Vec3 p2 = modelMat.transformPoint(edges[j+1]);

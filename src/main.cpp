@@ -44,13 +44,13 @@ int main(int argc, char* argv[]) {
         if (std::strcmp(argv[i], "--demo") == 0) demo = true;
     if (demo) {
         window.setWindowTitle("GeomTool v1.0 -- DEMO");
-        g_store.addShape3D(ShapeType::Cone);
+        g_store.addShape3D(ShapeType::Torus);
         if (!g_store.shapes.empty())
             g_store.selectShape(g_store.shapes.back()->id); // selected so Delete can be exercised
         if (g_canvas) {
             g_canvas->camera.azimuth = 0.6f;
             g_canvas->camera.elevation = 0.4f;
-            g_canvas->camera.frustumSize = 14.0f; // TEMP: small cone to test base-rim dash
+            g_canvas->camera.frustumSize = 5.0f; // TEMP: torus demo-view regression check
             g_canvas->update();
         }
     }
