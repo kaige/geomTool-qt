@@ -504,21 +504,33 @@ void CanvasWidget::drawShape(BaseShape* shape) {
 
             // Top & bottom rim segments: cube-style. A segment is hidden
             // (dashed) iff both its adjacent faces — the cap and the side
-            // quad — are back-facing; otherwise solid.
+            // quad — are back-facing; otherwise solid. The dash phase is
+            // continuous around each rim (as on the sphere equator) so a
+            // small cylinder's rim does not blur into a solid ring.
+            QPointF prevTop = worldToScreen(localPt(0.0f,  halfH, rTop));
+            QPointF prevBot = worldToScreen(localPt(0.0f, -halfH, rBot));
+            float dashOffTop = 0.0f, dashOffBot = 0.0f;
             for (int i = 0; i < seg; ++i) {
-                float a1 = 2.0f * M_PI * i / seg;
                 float a2 = 2.0f * M_PI * (i + 1) / seg;
-                bool sv = sideVisible((a1 + a2) * 0.5f);
+                bool sv = sideVisible(2.0f * M_PI * (i + 0.5f) / seg);
 
+                QPointF curTop = worldToScreen(localPt(a2,  halfH, rTop));
                 bool topHidden = !topVis && !sv;
-                Vec3 tp1 = localPt(a1,  halfH, rTop), tp2 = localPt(a2,  halfH, rTop);
-                renderer.addLine(worldToScreen(tp1), worldToScreen(tp2),
-                                 topHidden ? hiddenColor : drawColor, hwWire, topHidden);
+                renderer.addLine(prevTop, curTop,
+                                 topHidden ? hiddenColor : drawColor, hwWire,
+                                 topHidden, dashOffTop);
+                float dtx = curTop.x() - prevTop.x(), dty = curTop.y() - prevTop.y();
+                dashOffTop += std::sqrt(dtx * dtx + dty * dty);
+                prevTop = curTop;
 
+                QPointF curBot = worldToScreen(localPt(a2, -halfH, rBot));
                 bool botHidden = !botVis && !sv;
-                Vec3 bp1 = localPt(a1, -halfH, rBot), bp2 = localPt(a2, -halfH, rBot);
-                renderer.addLine(worldToScreen(bp1), worldToScreen(bp2),
-                                 botHidden ? hiddenColor : drawColor, hwWire, botHidden);
+                renderer.addLine(prevBot, curBot,
+                                 botHidden ? hiddenColor : drawColor, hwWire,
+                                 botHidden, dashOffBot);
+                float dbx = curBot.x() - prevBot.x(), dby = curBot.y() - prevBot.y();
+                dashOffBot += std::sqrt(dbx * dbx + dby * dby);
+                prevBot = curBot;
             }
 
             // Two vertical silhouette edges where side visibility flips:
@@ -593,6 +605,82 @@ void CanvasWidget::drawShape(BaseShape* shape) {
                 float dy = curRing.y() - prevRing.y();
                 dashOff += std::sqrt(dx * dx + dy * dy);
                 prevRing = curRing;
+            }
+            return;
+        }
+
+        // --- Cone rendering -----------------------------------------
+        // Mirrors the cylinder/sphere rules:
+        //  * Side silhouette: the two generators (apex -> base) where the
+        //    side surface flips front/back visibility — drawn solid. This
+        //    is the cone analogue of the cylinder's side silhouette lines
+        //    and the sphere's outline circle.
+        //  * Base rim: cube/cylinder-rim style — a segment is dashed when
+        //    BOTH adjacent faces (base cap + side quad) are back-facing,
+        //    solid as soon as either is visible. Dash phase is continuous
+        //    around the rim (as on the sphere equator) so a small cone's
+        //    base ring does not blur into a solid line.
+        if (shape->type == ShapeType::Cone) {
+            constexpr int seg = 48;
+            const float r = 1.0f, h = 2.0f;
+            const float halfH = h * 0.5f;
+            const Vec3 fwd = forward;
+
+            // Cone local axes projected onto the view direction (rotation
+            // only; uniform scale leaves directions valid).
+            const float A = modelMat.transformDir({1, 0, 0}).dot(fwd); // local X
+            const float B = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z
+            const float C = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y (axis)
+
+            // The side outward normal at generator angle a is proportional
+            // to (h cos a, r, h sin a); its dot with fwd is
+            // h (cos a A + sin a B) + r C. Front-facing (visible) when < 0.
+            auto sideVisible = [&](float a) {
+                return h * (std::cos(a) * A + std::sin(a) * B) + r * C < 0.0f;
+            };
+            const bool baseVis = (C > 0.0f);  // base cap, outward normal -Y
+
+            auto localPt = [&](float a, float y, float rad) {
+                return modelMat.transformPoint({rad * std::cos(a), y, rad * std::sin(a)});
+            };
+
+            // Base rim: cylinder-rim rule with a continuous dash phase.
+            QPointF prevRing = worldToScreen(localPt(0.0f, -halfH, r));
+            float dashOff = 0.0f;
+            for (int i = 0; i < seg; ++i) {
+                float a2 = 2.0f * M_PI * (i + 1) / seg;
+                QPointF curRing = worldToScreen(localPt(a2, -halfH, r));
+                bool sv = sideVisible(2.0f * M_PI * (i + 0.5f) / seg);
+                bool hidden = !baseVis && !sv;
+                renderer.addLine(prevRing, curRing,
+                                 hidden ? hiddenColor : drawColor, hwWire,
+                                 hidden, dashOff);
+                float dx = curRing.x() - prevRing.x();
+                float dy = curRing.y() - prevRing.y();
+                dashOff += std::sqrt(dx * dx + dy * dy);
+                prevRing = curRing;
+            }
+
+            // Two side silhouette generators where the side flips visibility:
+            //   h (cos a A + sin a B) + r C = 0  =>  cos a A + sin a B = -r C / h.
+            // With R = sqrt(A²+B²), phi = atan2(B,A): a = phi ± acos((-rC/h)/R).
+            // No generator when looking along the axis (R≈0) or when the side
+            // is uniformly front/back (|ratio|>1); the base ring is then the
+            // silhouette, which the rim loop already draws.
+            const float R = std::sqrt(A * A + B * B);
+            if (R > 1e-6f) {
+                float ratio = (-r * C / h) / R;
+                if (std::fabs(ratio) <= 1.0f) {
+                    float phi = std::atan2(B, A);
+                    float dlt = std::acos(ratio);
+                    float sil[2] = { phi + dlt, phi - dlt };
+                    Vec3 apex = localPt(0.0f, halfH, 0.0f);
+                    for (float a : sil) {
+                        Vec3 base = localPt(a, -halfH, r);
+                        renderer.addLine(worldToScreen(apex), worldToScreen(base),
+                                         drawColor, hwWire, false);
+                    }
+                }
             }
             return;
         }
