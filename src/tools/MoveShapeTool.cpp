@@ -84,11 +84,15 @@ void MoveShapeTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasW
             endVertexStart.z + delta.z
         });
     } else {
-        g_store.updateShape(sel->id, Vec3(
+        // 3D shape — update position directly without notifyChange() to avoid
+        // rebuilding the sidebar table on every mouse move (causes severe lag).
+        // The canvas repaint is handled by CanvasWidget::mouseMoveEvent.
+        sel->position = Vec3(
             dragStartObjectPos.x + delta.x,
             dragStartObjectPos.y + delta.y,
             dragStartObjectPos.z + delta.z
-        ));
+        );
+        sel->hasChanged = true;
     }
 }
 

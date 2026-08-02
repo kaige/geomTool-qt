@@ -35,9 +35,11 @@ void RotateShapeTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, Canva
         case 'z': newRot.z += rotationDelta; break;
     }
 
-    RotationUpdate upd;
-    upd.rotation = newRot;
-    g_store.updateShape(sel->id, upd);
+    // Update rotation directly without notifyChange() to avoid rebuilding
+    // the sidebar table on every mouse move. Canvas repaint is handled by
+    // CanvasWidget::mouseMoveEvent.
+    sel->rotation = newRot;
+    sel->hasChanged = true;
 }
 
 void RotateShapeTool::onMouseUp(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {

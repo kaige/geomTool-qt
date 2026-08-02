@@ -278,6 +278,16 @@ void CanvasWidget::mouseMoveEvent(QMouseEvent* event) {
     Qt::KeyboardModifiers mods = event->modifiers() | QGuiApplication::queryKeyboardModifiers();
     toolManager->handleMouseMove(event->position(), mods);
     mousePos = event->position();
+
+    // During drag operations, repaint the canvas for smooth visual feedback.
+    // Drag tools update vertex/shape data directly (without notifyChange),
+    // so we must trigger a lightweight canvas-only repaint here — NOT a full
+    // UI refresh (which would rebuild the shape list sidebar on every move
+    // and cause severe lag). The full notifyChange() fires once when the drag
+    // ends and the tool switches back to Select.
+    if (isDraggingObject || isDraggingEndpoint || isRotatingObject) {
+        update();
+    }
 }
 
 void CanvasWidget::mouseReleaseEvent(QMouseEvent* event) {
