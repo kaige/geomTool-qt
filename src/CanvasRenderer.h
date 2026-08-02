@@ -50,8 +50,13 @@ public:
 
     // Queue a thick line segment between two screen-space points.
     // halfWidthPx is half the desired line thickness in pixels.
+    // dashOff (px) advances the dash phase — pass a cumulative screen
+    // length so consecutive segments of one dashed curve (e.g. a sphere's
+    // equator) share a continuous dash pattern instead of restarting each
+    // segment, which makes small shapes blur into a solid line.
     void addLine(const QPointF& a, const QPointF& b,
-                 const QColor& color, float halfWidthPx, bool dashed);
+                 const QColor& color, float halfWidthPx, bool dashed,
+                 float dashOff = 0.0f);
 
     // Upload + draw all queued geometry for this frame.
     void endFrame();
@@ -67,6 +72,7 @@ private:
         float halfWidth;     // px
         float segLen;        // px length (for dash distance)
         float dashed;        // 0 or 1
+        float dashOff;       // px phase offset along the dash pattern
     };
 
     QOpenGLShaderProgram m_lineProg;

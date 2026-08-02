@@ -535,6 +535,68 @@ void CanvasWidget::drawShape(BaseShape* shape) {
             return;
         }
 
+        // --- Sphere rendering ---------------------------------------
+        // Two elements, mirroring the cylinder's two rules:
+        //  * Silhouette (outline): the great circle in the plane through
+        //    the center perpendicular to the view direction — the sphere's
+        //    apparent boundary. This is the sphere analogue of the
+        //    cylinder's side silhouette: the locus where the surface
+        //    normal is perpendicular to the view, i.e. where adjacent
+        //    surface patches flip front/back visibility (the "edge whose
+        //    adjacent faces disagree" rule). It is entirely front-facing,
+        //    so every segment is drawn solid.
+        //  * Equator: the great circle in the local XZ plane (local y=0),
+        //    cube/cylinder-rim style — a segment is dashed when it lies on
+        //    the back hemisphere (outward normal points away from the
+        //    camera) and solid on the front hemisphere.
+        if (shape->type == ShapeType::Sphere) {
+            constexpr int seg = 64;
+            const Vec3 fwd = forward;
+            // World radius: uniform scale applied to the base unit sphere.
+            const float worldR = modelMat.transformDir({1.0f, 0.0f, 0.0f}).length();
+
+            // Silhouette circle: right/up span the plane normal to `fwd`.
+            const Vec3 right = camera.getRight();
+            const Vec3 up = camera.getUp();
+            QPointF silPrev = worldToScreen(center + right * worldR);
+            for (int i = 1; i <= seg; ++i) {
+                float a = 2.0f * M_PI * i / seg;
+                QPointF silCur = worldToScreen(center
+                    + right * (std::cos(a) * worldR)
+                    + up    * (std::sin(a) * worldR));
+                renderer.addLine(silPrev, silCur, drawColor, hwWire, false);
+                silPrev = silCur;
+            }
+
+            // Equator: local XZ-plane great circle (transformed by modelMat
+            // so rotation/scale apply). Outward normal = radial direction.
+            auto equPt = [&](float a) {
+                return modelMat.transformPoint({std::cos(a), 0.0f, std::sin(a)});
+            };
+            // Advance the dash phase along the screen-space ring (cumulative
+            // screen length) so the hidden back arc reads as one continuous
+            // dashed curve — matching the cube's single-segment hidden edges
+            // — instead of restarting the dash at every segment, which blurs
+            // a small sphere's equator into a solid line.
+            QPointF prevRing = worldToScreen(equPt(0.0f));
+            float dashOff = 0.0f;
+            for (int i = 0; i < seg; ++i) {
+                float a1 = 2.0f * M_PI * i / seg;
+                float a2 = 2.0f * M_PI * (i + 1) / seg;
+                QPointF curRing = worldToScreen(equPt(a2));
+                Vec3 n = (equPt((a1 + a2) * 0.5f) - center).normalized();
+                bool hidden = n.dot(fwd) > 0.0f;  // back hemisphere
+                renderer.addLine(prevRing, curRing,
+                                 hidden ? hiddenColor : drawColor, hwWire,
+                                 hidden, dashOff);
+                float dx = curRing.x() - prevRing.x();
+                float dy = curRing.y() - prevRing.y();
+                dashOff += std::sqrt(dx * dx + dy * dy);
+                prevRing = curRing;
+            }
+            return;
+        }
+
         for (size_t j = 0; j < edges.size(); j += 2) {
             Vec3 p1 = modelMat.transformPoint(edges[j]);
             Vec3 p2 = modelMat.transformPoint(edges[j+1]);

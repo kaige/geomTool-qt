@@ -28,6 +28,7 @@ layout(location = 4) in float aSide;      // -1 / +1 perpendicular
 layout(location = 5) in float aHalfWidth; // px
 layout(location = 6) in float aSegLen;    // px length
 layout(location = 7) in float aDashed;    // 0 or 1
+layout(location = 8) in float aDashOff;   // px dash-phase offset
 
 uniform vec2 uViewport;
 
@@ -35,6 +36,7 @@ out vec4 vColor;
 out float vT;
 out float vSegLen;
 out float vDashed;
+out float vDashOff;
 
 void main() {
     vec2 d = aB - aA;
@@ -50,6 +52,7 @@ void main() {
     vT = aT;
     vSegLen = aSegLen;
     vDashed = aDashed;
+    vDashOff = aDashOff;
 }
 )";
 
@@ -58,6 +61,7 @@ in vec4 vColor;
 in float vT;
 in float vSegLen;
 in float vDashed;
+in float vDashOff;
 
 uniform float uDashLen; // half-period of the dash pattern (px)
 
@@ -65,7 +69,10 @@ out vec4 frag;
 
 void main() {
     if (vDashed > 0.5) {
-        float dist = vT * vSegLen;
+        // Advance the phase by vDashOff so a curve split into many short
+        // segments (e.g. a sphere equator) dashes continuously instead of
+        // restarting — and blurring into a solid line — at each segment.
+        float dist = vT * vSegLen + vDashOff;
         float m = mod(dist, uDashLen * 2.0);
         if (m > uDashLen) discard;
     }
@@ -133,6 +140,9 @@ void CanvasRenderer::setupLineAttributes() {
     glEnableVertexAttribArray(7);
     glVertexAttribPointer(7, 1, GL_FLOAT, GL_FALSE, stride,
                           reinterpret_cast<void*>(offsetof(LineVert, dashed)));
+    glEnableVertexAttribArray(8);
+    glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, stride,
+                          reinterpret_cast<void*>(offsetof(LineVert, dashOff)));
 }
 
 void CanvasRenderer::beginFrame(int viewportW, int viewportH) {
@@ -142,7 +152,8 @@ void CanvasRenderer::beginFrame(int viewportW, int viewportH) {
 }
 
 void CanvasRenderer::addLine(const QPointF& a, const QPointF& b,
-                             const QColor& color, float halfWidthPx, bool dashed) {
+                             const QColor& color, float halfWidthPx, bool dashed,
+                             float dashOff) {
     const float ax = float(a.x()), ay = float(a.y());
     const float bx = float(b.x()), by = float(b.y());
     const float dx = bx - ax, dy = by - ay;
@@ -157,6 +168,7 @@ void CanvasRenderer::addLine(const QPointF& a, const QPointF& b,
     v.halfWidth = halfWidthPx;
     v.segLen = segLen;
     v.dashed = dashed ? 1.0f : 0.0f;
+    v.dashOff = dashOff;
 
     for (int i = 0; i < 6; ++i) {
         v.t = kCornerT[i];
