@@ -81,6 +81,45 @@ QPointF CanvasWidget::worldToScreen(const Vec3& world) {
     return QPointF(sx, sy);
 }
 
+bool CanvasWidget::projectLine(const Vec3& a, const Vec3& b, QPointF& sa, QPointF& sb) {
+    // Near-plane line clipping: when the camera is tilted, grid or shape
+    // endpoints behind the camera produce garbage projected coordinates,
+    // causing lines to "radiate" from a vanishing point. We clip the segment
+    // against the camera's near plane (depth >= small epsilon) so only the
+    // visible portion is drawn.
+
+    Vec3 camPos = camera.getPosition();
+    Vec3 fwd = camera.getForward();
+
+    float dA = (a - camPos).dot(fwd);
+    float dB = (b - camPos).dot(fwd);
+    const float nearEps = 0.1f;
+
+    // Both behind — invisible
+    if (dA < nearEps && dB < nearEps) return false;
+
+    Vec3 ca = a, cb = b;
+
+    // Clip endpoint a if behind
+    if (dA < nearEps) {
+        float t = (nearEps - dA) / (dB - dA);
+        ca = a + (b - a) * t;
+    }
+    // Clip endpoint b if behind
+    if (dB < nearEps) {
+        float t = (nearEps - dB) / (dA - dB);
+        cb = b + (a - b) * t;
+    }
+
+    float sax, say, sbx, sby;
+    if (!camera.project(ca, width(), height(), sax, say)) return false;
+    if (!camera.project(cb, width(), height(), sbx, sby)) return false;
+
+    sa = QPointF(sax, say);
+    sb = QPointF(sbx, sby);
+    return true;
+}
+
 Vec3 CanvasWidget::screenToWorld(float sx, float sy) {
     return camera.screenToWorld(sx, sy, width(), height());
 }
@@ -369,21 +408,25 @@ void CanvasWidget::drawGrid() {
 
     for (int i = -numLines; i <= numLines; i++) {
         float x = (float)i;
-        QPointF s1 = worldToScreen({x, -gridExtent, 0});
-        QPointF s2 = worldToScreen({x, gridExtent, 0});
-        renderer.addLine(s1, s2, gridColor, 0.5f, false);
+        // Vertical line (along Y): clip against near plane so endpoints
+        // behind the camera don't produce radiating artifacts.
+        QPointF s1, s2;
+        if (projectLine({x, -gridExtent, 0}, {x, gridExtent, 0}, s1, s2))
+            renderer.addLine(s1, s2, gridColor, 0.5f, false);
 
-        QPointF s3 = worldToScreen({-gridExtent, x, 0});
-        QPointF s4 = worldToScreen({gridExtent, x, 0});
-        renderer.addLine(s3, s4, gridColor, 0.5f, false);
+        // Horizontal line (along X)
+        if (projectLine({-gridExtent, x, 0}, {gridExtent, x, 0}, s1, s2))
+            renderer.addLine(s1, s2, gridColor, 0.5f, false);
     }
 
     // Axes lines on Z=0 plane
-    QPointF origin = worldToScreen({0, 0, 0});
-    QPointF xAxis  = worldToScreen({gridExtent, 0, 0});
-    QPointF yAxis  = worldToScreen({0, gridExtent, 0});
-    renderer.addLine(origin, xAxis, axisColor, 1.0f, false);
-    renderer.addLine(origin, yAxis, axisColor, 1.0f, false);
+    QPointF origin, xAxis;
+    if (projectLine({0, 0, 0}, {gridExtent, 0, 0}, origin, xAxis))
+        renderer.addLine(origin, xAxis, axisColor, 1.0f, false);
+
+    QPointF origin2, yAxis;
+    if (projectLine({0, 0, 0}, {0, gridExtent, 0}, origin2, yAxis))
+        renderer.addLine(origin2, yAxis, axisColor, 1.0f, false);
 }
 
 void CanvasWidget::drawShapes() {

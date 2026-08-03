@@ -96,6 +96,12 @@ public:
     // Convert shape to screen points for rendering
     QPointF worldToScreen(const Vec3& world);
 
+    // Project a world-space line segment to screen coordinates, clipping
+    // against the camera's near plane. Returns false if the entire segment
+    // is behind the camera. Handles partial-visibility by clamping the
+    // off-screen endpoint to the near-plane intersection.
+    bool projectLine(const Vec3& a, const Vec3& b, QPointF& sa, QPointF& sb);
+
     // Set cursor
     void setCanvasCursor(Qt::CursorShape shape);
 
