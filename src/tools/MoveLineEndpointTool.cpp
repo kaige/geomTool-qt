@@ -28,9 +28,9 @@ void MoveLineEndpointTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, 
     Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
     auto snapResult = cv->snapManager->findSnapPoint(worldPos);
 
-    cv->snapVisible = snapResult.snapped;
-    cv->snapPosition = snapResult.snappedPosition;
-    cv->snapType = snapResult.snapType;
+    // Snap positioning is used, but the green marker is NOT shown during drag
+    // to keep the UI clean (consistent with arc endpoint dragging).
+    cv->snapVisible = false;
 
     g_store.updateVertex(vertexId, snapResult.snappedPosition);
 }
