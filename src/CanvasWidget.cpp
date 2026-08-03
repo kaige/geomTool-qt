@@ -886,7 +886,31 @@ void CanvasWidget::drawTempLines() {
 // ============================================================
 
 void CanvasWidget::drawEndpoints(QPainter& painter, BaseShape* shape) {
-    float markerSize = 8.0f;
+    // Match geomTool (Three.js EndpointMarkers.ts) style exactly:
+    // Each endpoint = filled circle + thin colored ring border.
+    // The fill occludes the line/arc near the endpoint (depthTest=false in Three.js,
+    // equivalent to drawing after the GL layer in QPainter).
+    //
+    // Colors (from EndpointMarkers.ts):
+    //   Line start/end  : white fill (0xffffff) + orange ring (0xff6b35)
+    //   Arc center      : green fill (0x00ff00) + dark-green ring (0x00aa00)
+    //   Arc start/end   : white fill (0xffffff) + orange ring (0xff6b35)
+    //
+    // Size: 0.0075 * frustumSize in world units → ~constant on-screen size
+    //   (matches calculateCircleRadius / 2 after updateAllEndpointsScale).
+
+    // Convert world-space radius to screen pixels.
+    // React: circleR = 0.0075 * frustumSize (world).
+    // Screen: px = world / (frustumSize/2) * (height/2) = world * height / frustumSize
+    // So: screenR = 0.0075 * frustumSize * height / frustumSize = 0.0075 * height
+    float markerR = 0.0075f * (float)height();
+    markerR = std::max(markerR, 5.0f);  // minimum legible size
+    float ringWidth = markerR * 0.12f;   // thin ring (~10% of radius, matching RING_INNER_RATIO=0.9)
+
+    const QColor fillColor(255, 255, 255, 242);      // white, 0.95 opacity
+    const QColor ringColor(255, 107, 53);             // orange #ff6b35
+    const QColor centerFill(0, 255, 0, 242);          // green, 0.95 opacity
+    const QColor centerRing(0, 170, 0);               // dark green #00aa00
 
     if (shape->type == ShapeType::LineSegment) {
         Vec3 startPos, endPos;
@@ -894,10 +918,11 @@ void CanvasWidget::drawEndpoints(QPainter& painter, BaseShape* shape) {
         QPointF s1 = worldToScreen(startPos);
         QPointF s2 = worldToScreen(endPos);
 
-        painter.setBrush(QColor(255, 107, 53));
-        painter.setPen(QPen(Qt::white, 1));
-        painter.drawEllipse(s1, markerSize, markerSize);
-        painter.drawEllipse(s2, markerSize, markerSize);
+        // Filled white circle + orange ring border
+        painter.setBrush(fillColor);
+        painter.setPen(QPen(ringColor, ringWidth));
+        painter.drawEllipse(s1, markerR, markerR);
+        painter.drawEllipse(s2, markerR, markerR);
 
     } else if (shape->type == ShapeType::CircularArc) {
         Vec3 center, start, end;
@@ -906,16 +931,16 @@ void CanvasWidget::drawEndpoints(QPainter& painter, BaseShape* shape) {
         QPointF ss = worldToScreen(start);
         QPointF se = worldToScreen(end);
 
-        // Center - ring (different shape)
-        painter.setBrush(Qt::NoBrush);
-        painter.setPen(QPen(QColor(255, 107, 53), 2));
-        painter.drawEllipse(sc, markerSize + 2, markerSize + 2);
+        // Center — green fill + dark green ring
+        painter.setBrush(centerFill);
+        painter.setPen(QPen(centerRing, ringWidth));
+        painter.drawEllipse(sc, markerR, markerR);
 
-        // Start/End - filled circles
-        painter.setBrush(QColor(255, 107, 53));
-        painter.setPen(QPen(Qt::white, 1));
-        painter.drawEllipse(ss, markerSize, markerSize);
-        painter.drawEllipse(se, markerSize, markerSize);
+        // Start/End — white fill + orange ring
+        painter.setBrush(fillColor);
+        painter.setPen(QPen(ringColor, ringWidth));
+        painter.drawEllipse(ss, markerR, markerR);
+        painter.drawEllipse(se, markerR, markerR);
     }
 }
 
