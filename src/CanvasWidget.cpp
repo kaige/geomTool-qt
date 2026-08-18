@@ -859,6 +859,10 @@ void CanvasWidget::drawShape(BaseShape* shape) {
                 Vec3 n0 = modelMat.transformDir(cubeFaceN[e][0]);
                 Vec3 n1 = modelMat.transformDir(cubeFaceN[e][1]);
                 // Back-facing: outward normal points along the view direction.
+                // (`forward` is camera.getForward() — under the oblique
+                // (斜二测) camera this is the projector direction, so an
+                // axis-aligned cube shows front/top/right solid and dashes
+                // exactly the 3 edges at the far-bottom-left corner.)
                 hidden = (n0.dot(forward) > 0.0f) && (n1.dot(forward) > 0.0f);
             } else {
                 Vec3 mid = (p1 + p2) * 0.5f;

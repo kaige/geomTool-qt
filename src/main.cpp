@@ -2,6 +2,8 @@
 #include <QSurfaceFormat>
 #include <QFontDatabase>
 #include <QFont>
+#include <QTimer>
+#include <QDebug>
 #include <cstring>
 #include "MainWindow.h"
 #include "CanvasWidget.h"
@@ -45,14 +47,27 @@ int main(int argc, char* argv[]) {
     if (demo) {
         window.setWindowTitle("GeomTool v1.0 -- DEMO");
         g_store.addShape3D(ShapeType::Torus);
-        if (!g_store.shapes.empty())
-            g_store.selectShape(g_store.shapes.back()->id); // selected so Delete can be exercised
         if (g_canvas) {
-            g_canvas->camera.azimuth = 0.6f;
-            g_canvas->camera.elevation = 0.4f;
-            g_canvas->camera.frustumSize = 5.0f; // TEMP: torus demo-view regression check
+            g_canvas->camera.frustumSize = 5.0f; // frame the torus; angles stay at the default frontal view
             g_canvas->update();
         }
+    }
+
+    // --shot <path>: after the first renders, dump the canvas framebuffer
+    // (QOpenGLWidget::grabFramebuffer — includes the QPainter overlays) to
+    // <path> and quit. Headless visual verification that does not depend on
+    // system screen capture (which needs TCC screen-recording and a live
+    // display — unreliable on this headless Mac mini).
+    const char* shotPath = nullptr;
+    for (int i = 1; i < argc - 1; ++i)
+        if (std::strcmp(argv[i], "--shot") == 0) shotPath = argv[i + 1];
+    if (shotPath && g_canvas) {
+        QTimer::singleShot(800, [shotPath]() {
+            QImage fb = g_canvas->grabFramebuffer();
+            bool ok = fb.save(QString::fromLocal8Bit(shotPath));
+            qDebug("shot %s: %s", shotPath, ok ? "saved" : "FAILED");
+            QApplication::quit();
+        });
     }
 
     return app.exec();
