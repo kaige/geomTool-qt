@@ -534,6 +534,66 @@ void CanvasWidget::drawShape(BaseShape* shape) {
         //    only when BOTH adjacent faces (cap + side quad) are back-facing,
         //    solid as soon as either face is visible.
         if (shape->type == ShapeType::Cylinder) {
+            // --- Textbook pose (axis vertical, default creation) ----------
+            // Draw exactly like the classroom 直观图: both caps as the
+            // textbook ellipse for a level circle under 斜二测 — HORIZONTAL
+            // major axis (long axis ∥ X, semi-major 1.06r), vertical minor
+            // axis (semi-minor 0.35r), the classic approximation (a strict
+            // oblique projection would tilt the major axis ~22°). Two
+            // vertical side silhouettes tangent at the major-axis ends;
+            // bottom cap's far (upper) arc dashed, everything else solid.
+            {
+                const Vec3 axisW = modelMat.transformDir({0, 0, 1});
+                const float sU = modelMat.transformDir({1, 0, 0}).length();
+                const float sV = modelMat.transformDir({0, 1, 0}).length();
+                const float sZ = std::abs(axisW.z);
+                if (sZ > 0.999f && std::abs(axisW.x) < 1e-3f
+                                 && std::abs(axisW.y) < 1e-3f
+                                 && std::abs(sU - sV) < 1e-3f) {
+                    const float pxPerUnit = height() / camera.frustumSize;
+                    const float R  = sU * pxPerUnit;   // cap radius, px
+                    const float ea = 1.06f * R;        // semi-major (level ∥ X)
+                    const float eb = 0.35f * R;        // semi-minor (vertical)
+                    const float halfHL = 1.0f;
+
+                    const QPointF cBot = worldToScreen(center - axisW * halfHL * sU);
+                    const QPointF cTop = worldToScreen(center + axisW * halfHL * sU);
+
+                    // Full top ellipse, solid.
+                    constexpr int eseg = 64;
+                    QPointF prev = { cTop.x() + ea, cTop.y() };
+                    for (int i = 1; i <= eseg; ++i) {
+                        float t = 2.0f * float(M_PI) * i / eseg;
+                        QPointF cur = { cTop.x() + ea * std::cos(t),
+                                        cTop.y() - eb * std::sin(t) };
+                        renderer.addLine(prev, cur, drawColor, hwWire, false);
+                        prev = cur;
+                    }
+                    // Bottom ellipse: near (lower) arc solid, far (upper)
+                    // arc dashed, with a continuous dash phase.
+                    prev = { cBot.x() + ea, cBot.y() };
+                    float dashOff = 0.0f;
+                    for (int i = 1; i <= eseg; ++i) {
+                        float t = 2.0f * float(M_PI) * i / eseg;
+                        QPointF cur = { cBot.x() + ea * std::cos(t),
+                                        cBot.y() - eb * std::sin(t) };
+                        bool hid = std::sin(t) > 0.0f;   // upper half = far side
+                        renderer.addLine(prev, cur,
+                                         hid ? hiddenColor : drawColor,
+                                         hwWire, hid, dashOff);
+                        float dx = cur.x() - prev.x(), dy = cur.y() - prev.y();
+                        dashOff += std::sqrt(dx * dx + dy * dy);
+                        prev = cur;
+                    }
+                    // Two vertical side silhouettes at the major-axis ends.
+                    renderer.addLine({ cBot.x() - ea, cBot.y() }, { cTop.x() - ea, cTop.y() },
+                                     drawColor, hwWire, false);
+                    renderer.addLine({ cBot.x() + ea, cBot.y() }, { cTop.x() + ea, cTop.y() },
+                                     drawColor, hwWire, false);
+                    return;
+                }
+            }
+
             constexpr int seg = 16;
             const float rTop = 1.0f, rBot = 1.0f, h = 2.0f;
             const float halfH = h * 0.5f;
@@ -676,6 +736,58 @@ void CanvasWidget::drawShape(BaseShape* shape) {
         //    around the rim (as on the sphere equator) so a small cone's
         //    base ring does not blur into a solid line.
         if (shape->type == ShapeType::Cone) {
+            // --- Textbook pose (axis vertical, default creation) ----------
+            // Same classroom 直观图 treatment as the cylinder: base as the
+            // textbook level-circle ellipse (horizontal major axis, semi
+            // 1.06r / 0.35r), apex directly above the base center, and two
+            // side generators TANGENT to the base ellipse (tangent points
+            // from the apex: for ellipse x²/a² + y²/b² = 1 and apex at
+            // height D on the axis, the tangent points sit at
+            // y = b²/D, x = ±a·√(1−b²/D²)). Far (upper) base arc dashed.
+            {
+                const Vec3 axisW = modelMat.transformDir({0, 0, 1});
+                const float sU = modelMat.transformDir({1, 0, 0}).length();
+                const float sV = modelMat.transformDir({0, 1, 0}).length();
+                if (std::abs(axisW.z) > 0.999f && std::abs(axisW.x) < 1e-3f
+                                                 && std::abs(axisW.y) < 1e-3f
+                                                 && std::abs(sU - sV) < 1e-3f) {
+                    const float pxPerUnit = height() / camera.frustumSize;
+                    const float R  = sU * pxPerUnit;
+                    const float ea = 1.06f * R;
+                    const float eb = 0.35f * R;
+
+                    const QPointF cBot = worldToScreen(center - axisW * sU);
+                    const QPointF apex = worldToScreen(center + axisW * sU);
+
+                    constexpr int eseg = 64;
+                    QPointF prev = { cBot.x() + ea, cBot.y() };
+                    float dashOff = 0.0f;
+                    for (int i = 1; i <= eseg; ++i) {
+                        float t = 2.0f * float(M_PI) * i / eseg;
+                        QPointF cur = { cBot.x() + ea * std::cos(t),
+                                        cBot.y() - eb * std::sin(t) };
+                        bool hid = std::sin(t) > 0.0f;   // upper half = far side
+                        renderer.addLine(prev, cur,
+                                         hid ? hiddenColor : drawColor,
+                                         hwWire, hid, dashOff);
+                        float dx = cur.x() - prev.x(), dy = cur.y() - prev.y();
+                        dashOff += std::sqrt(dx * dx + dy * dy);
+                        prev = cur;
+                    }
+                    // Tangent generators from the apex to the base ellipse.
+                    const float D = cBot.y() - apex.y();   // apex height above base center, px
+                    if (D > eb) {
+                        const float yT = eb * eb / D;
+                        const float xT = ea * std::sqrt(1.0f - (eb * eb) / (D * D));
+                        renderer.addLine(apex, { cBot.x() - xT, cBot.y() - yT },
+                                         drawColor, hwWire, false);
+                        renderer.addLine(apex, { cBot.x() + xT, cBot.y() - yT },
+                                         drawColor, hwWire, false);
+                    }
+                    return;
+                }
+            }
+
             constexpr int seg = 48;
             const float r = 1.0f, h = 2.0f;
             const float halfH = h * 0.5f;

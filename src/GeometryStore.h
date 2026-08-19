@@ -65,25 +65,14 @@ public:
         shape->position = position;
         // Axis-aligned default poses under the 斜二测 camera (projection
         // plane flush with XZ + oblique projectors, depth +Y receding
-        // up-right at 45° × 0.5):
-        //  * Cube: unrotated — front face is a true square lying in the
-        //    XZ work plane; default position (center y=+0.5) puts that
-        //    face exactly on the y=0 grid, extending INTO the screen.
-        //  * Cylinder: axis along +Y (lie it "into" the screen) — the
-        //    textbook advantage of 斜二测: both circular caps are
-        //    parallel to the projection plane and project as TRUE
-        //    CIRCLES (no squashed ellipse), the far one shifted 45°
-        //    up-right at half scale. Center shifted so the near cap
-        //    sits exactly on the click/work plane (mirrors the cube's
-        //    front-face-on-plane behavior).
-        //  * Cone/sphere/torus: unrotated, Z-axis aligned (upright
-        //    cone, ±Z poles, flat-lying torus).
-        if (type == ShapeType::Cylinder) {
-            shape->rotation = {-float(M_PI_2), 0, 0}; // local Z (axis) → world +Y
-            shape->position.y += 1.0f;                // near cap (center−1) on the work plane
-        } else {
-            shape->rotation = {0, 0, 0};
-        }
+        // up-right at 45° × 0.5). All primitives spawn unrotated, Z-axis
+        // aligned (upright cylinder/cone, ±Z sphere poles, flat-lying
+        // torus); center y=+0.5 sinks the unit cube's front face onto
+        // the y=0 work plane (it extends INTO the screen). Cylinders and
+        // cones render with the textbook level-circle ellipse (horizontal
+        // major axis) in their vertical default pose — see the render
+        // fast paths in CanvasWidget::drawShape.
+        shape->rotation = {0, 0, 0};
         shape->scale = {1, 1, 1};
         shape->color = "#0078d4";
         shape->visible = true;
