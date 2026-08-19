@@ -540,21 +540,21 @@ void CanvasWidget::drawShape(BaseShape* shape) {
             const Vec3 fwd = forward;
 
             // Cylinder local axes in world space (rotation only; uniform
-            // scale leaves directions valid).
+            // scale leaves directions valid). Central axis = local Z.
             const float A = modelMat.transformDir({1, 0, 0}).dot(fwd); // local X
-            const float B = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z
-            const float C = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y (axis)
+            const float B = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y
+            const float C = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z (axis)
 
-            // Side face with outward normal n(a) = cos(a)*X + sin(a)*Z is
+            // Side face with outward normal n(a) = cos(a)*X + sin(a)*Y is
             // front-facing (visible) iff n·fwd < 0.
             auto sideVisible = [&](float a) {
                 return std::cos(a) * A + std::sin(a) * B < 0.0f;
             };
-            const bool topVis = (C < 0.0f);  // top cap, outward normal +Y
-            const bool botVis = (C > 0.0f);  // bottom cap, outward normal -Y
+            const bool topVis = (C < 0.0f);  // top cap, outward normal +Z
+            const bool botVis = (C > 0.0f);  // bottom cap, outward normal -Z
 
-            auto localPt = [&](float a, float y, float r) {
-                return modelMat.transformPoint({r * std::cos(a), y, r * std::sin(a)});
+            auto localPt = [&](float a, float z, float r) {
+                return modelMat.transformPoint({r * std::cos(a), r * std::sin(a), z});
             };
 
             // Top & bottom rim segments: cube-style. A segment is hidden
@@ -612,7 +612,7 @@ void CanvasWidget::drawShape(BaseShape* shape) {
         //    surface patches flip front/back visibility (the "edge whose
         //    adjacent faces disagree" rule). It is entirely front-facing,
         //    so every segment is drawn solid.
-        //  * Equator: the great circle in the local XZ plane (local y=0),
+        //  * Equator: the great circle in the local XY plane (local z=0),
         //    cube/cylinder-rim style — a segment is dashed when it lies on
         //    the back hemisphere (outward normal points away from the
         //    camera) and solid on the front hemisphere.
@@ -635,10 +635,10 @@ void CanvasWidget::drawShape(BaseShape* shape) {
                 silPrev = silCur;
             }
 
-            // Equator: local XZ-plane great circle (transformed by modelMat
+            // Equator: local XY-plane great circle (transformed by modelMat
             // so rotation/scale apply). Outward normal = radial direction.
             auto equPt = [&](float a) {
-                return modelMat.transformPoint({std::cos(a), 0.0f, std::sin(a)});
+                return modelMat.transformPoint({std::cos(a), std::sin(a), 0.0f});
             };
             // Advance the dash phase along the screen-space ring (cumulative
             // screen length) so the hidden back arc reads as one continuous
@@ -682,21 +682,22 @@ void CanvasWidget::drawShape(BaseShape* shape) {
             const Vec3 fwd = forward;
 
             // Cone local axes projected onto the view direction (rotation
-            // only; uniform scale leaves directions valid).
+            // only; uniform scale leaves directions valid). Central axis =
+            // local Z.
             const float A = modelMat.transformDir({1, 0, 0}).dot(fwd); // local X
-            const float B = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z
-            const float C = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y (axis)
+            const float B = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y
+            const float C = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z (axis)
 
             // The side outward normal at generator angle a is proportional
-            // to (h cos a, r, h sin a); its dot with fwd is
+            // to (h cos a, h sin a, r); its dot with fwd is
             // h (cos a A + sin a B) + r C. Front-facing (visible) when < 0.
             auto sideVisible = [&](float a) {
                 return h * (std::cos(a) * A + std::sin(a) * B) + r * C < 0.0f;
             };
-            const bool baseVis = (C > 0.0f);  // base cap, outward normal -Y
+            const bool baseVis = (C > 0.0f);  // base cap, outward normal -Z
 
-            auto localPt = [&](float a, float y, float rad) {
-                return modelMat.transformPoint({rad * std::cos(a), y, rad * std::sin(a)});
+            auto localPt = [&](float a, float z, float rad) {
+                return modelMat.transformPoint({rad * std::cos(a), rad * std::sin(a), z});
             };
 
             // Base rim: cylinder-rim rule with a continuous dash phase.
@@ -758,13 +759,13 @@ void CanvasWidget::drawShape(BaseShape* shape) {
 
             auto localPt = [&](float u, float v) {
                 return modelMat.transformPoint({(R + r * std::cos(v)) * std::cos(u),
-                                                 r * std::sin(v),
-                                                 (R + r * std::cos(v)) * std::sin(u)});
+                                                 (R + r * std::cos(v)) * std::sin(u),
+                                                 r * std::sin(v)});
             };
 
             // Torus solid in world space, for the visibility test.
             const float scale = modelMat.transformDir({1.0f, 0.0f, 0.0f}).length();
-            const Vec3 axisN = modelMat.transformDir({0.0f, 1.0f, 0.0f}).normalized();
+            const Vec3 axisN = modelMat.transformDir({0.0f, 0.0f, 1.0f}).normalized();
             const float wR = R * scale, wr = r * scale;
             const float boundR = wR + wr;   // torus bounding-sphere radius
 
