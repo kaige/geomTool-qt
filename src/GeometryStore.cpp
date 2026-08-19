@@ -7,70 +7,68 @@ GeometryStore g_store;
 // ============================================================
 
 static Vec3 calculateArcCenter(const Vec3& start, const Vec3& end, const Vec3& arc) {
-    // 2D calculation (ignore z)
-    float ax = start.x, ay = start.y;
-    float bx = arc.x, by = arc.y;
-    float cx = end.x, cy = end.y;
+    // 2D calculation in the y=0 XZ work plane (planar pair: x, z)
+    float ax = start.x, az = start.z;
+    float bx = arc.x, bz = arc.z;
+    float cx = end.x, cz = end.z;
 
     float midABx = (ax + bx) / 2;
-    float midABy = (ay + by) / 2;
+    float midABz = (az + bz) / 2;
     float midBCx = (bx + cx) / 2;
-    float midBCy = (by + cy) / 2;
+    float midBCz = (bz + cz) / 2;
 
-    float centerX, centerY;
+    float centerX, centerZ;
 
     if (std::abs(bx - ax) < 1e-10f && std::abs(cx - bx) < 1e-10f) {
         centerX = (ax + cx) / 2;
-        centerY = (midABy + midBCy) / 2;
+        centerZ = (midABz + midBCz) / 2;
     } else if (std::abs(bx - ax) < 1e-10f) {
         centerX = ax;
-        float perpSlopeBC = -(cx - bx) / (cy - by);
-        centerY = midBCy + perpSlopeBC * (centerX - midBCx);
+        float perpSlopeBC = -(cx - bx) / (cz - bz);
+        centerZ = midBCz + perpSlopeBC * (centerX - midBCx);
     } else if (std::abs(cx - bx) < 1e-10f) {
         centerX = cx;
-        float perpSlopeAB = -(bx - ax) / (by - ay);
-        centerY = midABy + perpSlopeAB * (centerX - midABx);
+        float perpSlopeAB = -(bx - ax) / (bz - az);
+        centerZ = midABz + perpSlopeAB * (centerX - midABx);
     } else {
-        float slopeAB = (by - ay) / (bx - ax);
-        float slopeBC = (cy - by) / (cx - bx);
+        float slopeAB = (bz - az) / (bx - ax);
+        float slopeBC = (cz - bz) / (cx - bx);
         if (std::abs(slopeAB - slopeBC) < 1e-10f) {
-            float radius = std::sqrt((cx-ax)*(cx-ax) + (cy-ay)*(cy-ay)) / 2;
-            float angle = std::atan2(cy - ay, cx - ax);
+            float radius = std::sqrt((cx-ax)*(cx-ax) + (cz-az)*(cz-az)) / 2;
+            float angle = std::atan2(cz - az, cx - ax);
             centerX = (ax + cx) / 2 - radius * std::sin(angle);
-            centerY = (ay + cy) / 2 + radius * std::cos(angle);
+            centerZ = (az + cz) / 2 + radius * std::cos(angle);
         } else {
-            float perpSlopeAB = -(bx - ax) / (by - ay);
-            float perpSlopeBC = -(cx - bx) / (cy - by);
-            centerX = (perpSlopeAB * midABx - perpSlopeBC * midBCx + midBCy - midABy) / (perpSlopeAB - perpSlopeBC);
-            centerY = perpSlopeAB * (centerX - midABx) + midABy;
+            float perpSlopeAB = -(bx - ax) / (bz - az);
+            float perpSlopeBC = -(cx - bx) / (cz - bz);
+            centerX = (perpSlopeAB * midABx - perpSlopeBC * midBCx + midBCz - midABz) / (perpSlopeAB - perpSlopeBC);
+            centerZ = perpSlopeAB * (centerX - midABx) + midABz;
         }
     }
 
     // Fallback: circumcircle formula
-    float r1 = std::sqrt((ax-centerX)*(ax-centerX) + (ay-centerY)*(ay-centerY));
-    float r2 = std::sqrt((bx-centerX)*(bx-centerX) + (by-centerY)*(by-centerY));
-    float r3 = std::sqrt((cx-centerX)*(cx-centerX) + (cy-centerY)*(cy-centerY));
-    float maxR = std::max({r1, r2, r3});
-    float minR = std::min({r1, r2, r3});
+    float r1 = std::sqrt((ax-centerX)*(ax-centerX) + (az-centerZ)*(az-centerZ));
+    float r2 = std::sqrt((bx-centerX)*(bx-centerX) + (bz-centerZ)*(bz-centerZ));
+    float r3 = std::sqrt((cx-centerX)*(cx-centerX) + (cz-centerZ)*(cz-centerZ));
 
-    if (maxR - minR > maxR * 0.5f) {
-        float d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+    if (std::max({r1, r2, r3}) - std::min({r1, r2, r3}) > std::max({r1, r2, r3}) * 0.5f) {
+        float d = 2 * (ax * (bz - cz) + bx * (cz - az) + cx * (az - bz));
         if (std::abs(d) > 1e-10f) {
-            centerX = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / d;
-            centerY = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / d;
+            centerX = ((ax*ax+az*az)*(bz-cz) + (bx*bx+bz*bz)*(cz-az) + (cx*cx+cz*cz)*(az-bz)) / d;
+            centerZ = ((ax*ax+az*az)*(cx-bx) + (bx*bx+bz*bz)*(ax-cx) + (cx*cx+cz*cz)*(bx-ax)) / d;
         }
     }
 
-    return {centerX, centerY, 0};
+    return {centerX, 0, centerZ};
 }
 
 void GeometryStore::addCircularArc(const Vec3& start, const Vec3& end, const Vec3& arcPoint) {
     Vec3 center = calculateArcCenter(start, end, arcPoint);
 
-    // Determine direction (clockwise/counter-clockwise)
-    Vec3 v1 = {start.x - center.x, start.y - center.y, 0};
-    Vec3 v2 = {arcPoint.x - center.x, arcPoint.y - center.y, 0};
-    float cross = v1.x * v2.y - v1.y * v2.x;
+    // Determine direction (clockwise/counter-clockwise) in the XZ plane
+    Vec3 v1 = {start.x - center.x, 0, start.z - center.z};
+    Vec3 v2 = {arcPoint.x - center.x, 0, arcPoint.z - center.z};
+    float cross = v1.x * v2.z - v1.z * v2.x;
     bool clockwise = cross < 0;
 
     std::string centerId = addVertex(center);
@@ -101,21 +99,21 @@ void GeometryStore::updateArcEndpoint(const std::string& arcId, bool isStart, co
 
     float originalRadius = std::sqrt(
         (otherV->position.x - centerV->position.x) * (otherV->position.x - centerV->position.x) +
-        (otherV->position.y - centerV->position.y) * (otherV->position.y - centerV->position.y)
+        (otherV->position.z - centerV->position.z) * (otherV->position.z - centerV->position.z)
     );
 
     updateVertex(vertexId, position);
 
-    Vec3 chordVec = {otherV->position.x - position.x, otherV->position.y - position.y, 0};
+    Vec3 chordVec = {otherV->position.x - position.x, 0, otherV->position.z - position.z};
     float chordLength = chordVec.length();
 
     if (chordLength > 0.001f) {
         Vec3 midpoint = {
             (position.x + otherV->position.x) / 2,
-            (position.y + otherV->position.y) / 2,
+            0,
             (position.z + otherV->position.z) / 2
         };
-        Vec3 perpVec = {-chordVec.x / chordLength, chordVec.y / chordLength, 0};
+        Vec3 perpVec = {-chordVec.x / chordLength, 0, chordVec.z / chordLength};
         float halfChord = chordLength / 2;
         float centerDistance = 0;
         if (originalRadius > halfChord)
@@ -123,14 +121,14 @@ void GeometryStore::updateArcEndpoint(const std::string& arcId, bool isStart, co
         else
             centerDistance = halfChord * 0.1f;
 
-        Vec3 midToCenter = {centerV->position.x - midpoint.x, centerV->position.y - midpoint.y, 0};
+        Vec3 midToCenter = {centerV->position.x - midpoint.x, 0, centerV->position.z - midpoint.z};
         float dotProduct = midToCenter.dot(perpVec);
         float side = dotProduct >= 0 ? 1.0f : -1.0f;
 
         Vec3 newCenter = {
             midpoint.x + perpVec.x * centerDistance * side,
-            midpoint.y + perpVec.y * centerDistance * side,
-            midpoint.z
+            0,
+            midpoint.z + perpVec.z * centerDistance * side
         };
         updateVertex(arc.centerVertexId, newCenter);
     }
@@ -149,7 +147,7 @@ void GeometryStore::slideArcEndpointOnCircle(const std::string& arcId, bool isSt
 
     float radius = std::sqrt(
         (otherV->position.x - centerV->position.x) * (otherV->position.x - centerV->position.x) +
-        (otherV->position.y - centerV->position.y) * (otherV->position.y - centerV->position.y)
+        (otherV->position.z - centerV->position.z) * (otherV->position.z - centerV->position.z)
     );
 
     Vec3 dir = {

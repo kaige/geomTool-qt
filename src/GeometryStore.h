@@ -59,18 +59,19 @@ public:
         return ptr;
     }
 
-    void addShape3D(ShapeType type, const Vec3& position = {0, 0, -0.5f}) {
+    void addShape3D(ShapeType type, const Vec3& position = {0, 0.5f, 0}) {
         auto shape = std::make_unique<Shape3D>();
         shape->type = type;
         shape->position = position;
         // Axis-aligned, unrotated. Under the default 斜二测 camera
-        // (projection plane flush with XY + oblique projectors) an
+        // (projection plane flush with XZ + oblique projectors) an
         // unrotated cube reads exactly like the textbook 直观图:
-        // front face is a true square (bottom ∥ X, sides ∥ Y) lying in
-        // the XY plane, depth recedes up-right at 45° × 0.5, so top and
-        // right faces are visible while left / back / bottom are hidden.
-        // Default position puts the unit cube's front face exactly on
-        // the z = 0 grid plane (half-size 0.5 → center at z = -0.5).
+        // front face is a true square (bottom ∥ X, sides ∥ Z) lying
+        // in the XZ plane, depth (+Y) recedes up-right at 45° × 0.5,
+        // so top and right faces are visible while left / back /
+        // bottom are hidden. Default position puts the unit cube's
+        // front face exactly on the y = 0 grid plane (half-size 0.5
+        // → center at y = +0.5, cube extends INTO the screen).
         shape->rotation = {0, 0, 0};
         shape->scale = {1, 1, 1};
         shape->color = "#0078d4";

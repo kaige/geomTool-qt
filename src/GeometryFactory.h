@@ -38,10 +38,10 @@ struct GeometryFactory {
 
         float radius = std::sqrt(
             (sv->position.x - cv->position.x) * (sv->position.x - cv->position.x) +
-            (sv->position.y - cv->position.y) * (sv->position.y - cv->position.y)
+            (sv->position.z - cv->position.z) * (sv->position.z - cv->position.z)
         );
-        float startAngle = std::atan2(sv->position.y - cv->position.y, sv->position.x - cv->position.x);
-        float endAngle = std::atan2(ev->position.y - cv->position.y, ev->position.x - cv->position.x);
+        float startAngle = std::atan2(sv->position.z - cv->position.z, sv->position.x - cv->position.x);
+        float endAngle = std::atan2(ev->position.z - cv->position.z, ev->position.x - cv->position.x);
 
         float angleDiff = endAngle - startAngle;
         if (shape->clockwise) {
@@ -56,8 +56,8 @@ struct GeometryFactory {
             float angle = startAngle + angleStep * i;
             pts.push_back({
                 cv->position.x + radius * std::cos(angle),
-                cv->position.y + radius * std::sin(angle),
-                0.0f
+                0.0f,
+                cv->position.z + radius * std::sin(angle)
             });
         }
         return pts;

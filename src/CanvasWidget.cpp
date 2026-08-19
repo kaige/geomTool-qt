@@ -124,8 +124,10 @@ Vec3 CanvasWidget::screenToWorld(float sx, float sy) {
     return camera.screenToWorld(sx, sy, width(), height());
 }
 
-Vec3 CanvasWidget::screenToWorldOnZ0Plane(float sx, float sy) {
-    return camera.screenToWorldOnPlane(sx, sy, width(), height(), {0, 0, 1}, {0, 0, 0});
+Vec3 CanvasWidget::screenToWorldOnWorkPlane(float sx, float sy) {
+    // Work plane = the y=0 XZ plane (the frontal "page" the default
+    // camera faces). Normal +Y points into the scene.
+    return camera.screenToWorldOnPlane(sx, sy, width(), height(), {0, 1, 0}, {0, 0, 0});
 }
 
 Vec3 CanvasWidget::screenToWorldOnPlane(float sx, float sy, const Vec3& normal, const Vec3& point) {
@@ -399,7 +401,7 @@ void CanvasWidget::paintGL() {
 }
 
 void CanvasWidget::drawGrid() {
-    // Subtle grid on the Z=0 plane — square extent in both directions
+    // Subtle grid on the Y=0 XZ work plane — square extent in both directions
     float gridExtent = 20.0f;
     int numLines = 20;
 
@@ -408,25 +410,25 @@ void CanvasWidget::drawGrid() {
 
     for (int i = -numLines; i <= numLines; i++) {
         float x = (float)i;
-        // Vertical line (along Y): clip against near plane so endpoints
+        // Vertical line (along Z): clip against near plane so endpoints
         // behind the camera don't produce radiating artifacts.
         QPointF s1, s2;
-        if (projectLine({x, -gridExtent, 0}, {x, gridExtent, 0}, s1, s2))
+        if (projectLine({x, 0, -gridExtent}, {x, 0, gridExtent}, s1, s2))
             renderer.addLine(s1, s2, gridColor, 0.5f, false);
 
         // Horizontal line (along X)
-        if (projectLine({-gridExtent, x, 0}, {gridExtent, x, 0}, s1, s2))
+        if (projectLine({-gridExtent, 0, x}, {gridExtent, 0, x}, s1, s2))
             renderer.addLine(s1, s2, gridColor, 0.5f, false);
     }
 
-    // Axes lines on Z=0 plane
+    // Axes lines on the work plane (X horizontal, Z vertical on screen)
     QPointF origin, xAxis;
     if (projectLine({0, 0, 0}, {gridExtent, 0, 0}, origin, xAxis))
         renderer.addLine(origin, xAxis, axisColor, 1.0f, false);
 
-    QPointF origin2, yAxis;
-    if (projectLine({0, 0, 0}, {0, gridExtent, 0}, origin2, yAxis))
-        renderer.addLine(origin2, yAxis, axisColor, 1.0f, false);
+    QPointF origin2, zAxis;
+    if (projectLine({0, 0, 0}, {0, 0, gridExtent}, origin2, zAxis))
+        renderer.addLine(origin2, zAxis, axisColor, 1.0f, false);
 }
 
 void CanvasWidget::drawShapes() {
@@ -468,14 +470,14 @@ void CanvasWidget::drawShape(BaseShape* shape) {
         if (!cv) return;
         int segs = 64;
         QPointF prev = worldToScreen({
-            cv->position.x + circ->radius, cv->position.y, 0
+            cv->position.x + circ->radius, 0, cv->position.z
         });
         for (int i = 1; i <= segs; i++) {
             float a = 2 * M_PI * i / segs;
             Vec3 p = {
                 cv->position.x + circ->radius * std::cos(a),
-                cv->position.y + circ->radius * std::sin(a),
-                0
+                0,
+                cv->position.z + circ->radius * std::sin(a)
             };
             QPointF cur = worldToScreen(p);
             renderer.addLine(prev, cur, drawColor, hwLine, false);
@@ -991,14 +993,18 @@ void CanvasWidget::drawAxes(QPainter& painter) {
     painter.drawEllipse(QPointF(cx, cy), size/2.0, size/2.0);
 
     // Get camera direction to project axes
-    Vec3 forward = camera.getForward();
+    Vec3 frameFwd = camera.getFrameForward();
     Vec3 right = camera.getRight();
     Vec3 up = camera.getUp();
 
     auto projectAxis = [&](const Vec3& axisDir, const QColor& color, const QString& label) {
-        float xProj = axisDir.dot(right);
-        float yProj = axisDir.dot(up);
-        float depth = axisDir.dot(forward);
+        // Screen direction under the FULL oblique map (frame projection
+        // plus the 斜二测 shear), so the depth axis (Y under the default
+        // frontal view) shows as the textbook 45° up-right half-length
+        // arrow instead of collapsing onto the gizmo center.
+        float zs = -axisDir.dot(frameFwd);
+        float xProj = axisDir.dot(right) + Camera::OBLIQUE_SHEAR * zs;
+        float yProj = axisDir.dot(up)    + Camera::OBLIQUE_SHEAR * zs;
 
         float px = cx + xProj * axisLen;
         float py = cy - yProj * axisLen;

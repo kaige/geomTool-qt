@@ -12,7 +12,7 @@ void MoveArcEndpointTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, C
 void MoveArcEndpointTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
     if (!cv->isDraggingEndpoint) return;
 
-    Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     // Slide the endpoint on the circle (keep center and radius)
     g_store.slideArcEndpointOnCircle(arcId, isStart, worldPos);
 }

@@ -16,7 +16,7 @@ void MoveArcTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, CanvasWid
     Vertex* sv = g_store.getVertexById(arc->startVertexId);
     if (!cv_ || !sv) return;
 
-    dragStartWorldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    dragStartWorldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     dragStartRadius = sv->position.distanceTo(cv_->position);
 }
 
@@ -27,7 +27,7 @@ void MoveArcTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasWid
     if (!sel || sel->type != ShapeType::CircularArc) return;
     auto* arc = static_cast<CircularArcShape*>(sel);
 
-    Vec3 currentPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    Vec3 currentPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     Vec3 delta = currentPos - dragStartWorldPos;
 
     // Scale the radius based on drag distance from original center

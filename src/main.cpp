@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
         window.setWindowTitle("GeomTool v1.0 -- DEMO");
         g_store.addShape3D(ShapeType::Torus);
         if (g_canvas) {
-            g_canvas->camera.frustumSize = 5.0f; // frame the torus; angles stay at the default frontal view
+            g_canvas->camera.frustumSize = 5.0f; // frame the shape; angles stay at the default frontal XZ view
             g_canvas->update();
         }
     }

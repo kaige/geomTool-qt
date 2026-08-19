@@ -12,7 +12,7 @@ void CreateShape3DTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, Can
 void CreateShape3DTool::onMouseUp(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
     qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - mouseDownTime;
     if (elapsed < CLICK_THRESHOLD) {
-        Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+        Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
         g_store.addShape3D(shapeType, worldPos);
     }
 }

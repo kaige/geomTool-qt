@@ -80,7 +80,7 @@ public:
 
     // Screen <-> World conversion helpers
     Vec3 screenToWorld(float sx, float sy);
-    Vec3 screenToWorldOnZ0Plane(float sx, float sy);
+    Vec3 screenToWorldOnWorkPlane(float sx, float sy);
     Vec3 screenToWorldOnPlane(float sx, float sy, const Vec3& normal, const Vec3& point);
 
     // Hit testing

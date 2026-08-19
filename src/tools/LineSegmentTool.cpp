@@ -12,7 +12,7 @@ void LineSegmentTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, Canva
     mouseDownPos = pos;
     cv->setCanvasCursor(Qt::CrossCursor);
 
-    Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     auto snapResult = cv->snapManager->findSnapPoint(worldPos);
     startPoint = snapResult.snappedPosition;
     hasStart = true;
@@ -20,7 +20,7 @@ void LineSegmentTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, Canva
 }
 
 void LineSegmentTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
-    Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     auto snapResult = cv->snapManager->findSnapPoint(worldPos);
 
     // Update snap marker
@@ -51,7 +51,7 @@ void LineSegmentTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, Canva
 void LineSegmentTool::onMouseUp(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
     if (!hasStart) return;
 
-    Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     auto snapResult = cv->snapManager->findSnapPoint(worldPos);
     Vec3 snappedPos = snapResult.snappedPosition;
 

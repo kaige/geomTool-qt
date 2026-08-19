@@ -4,13 +4,16 @@
 // ============================================================
 // Camera - Oblique (斜二测) camera with orbit controls
 //
-// The projection plane stays flush against the XY plane (default
-// azimuth = elevation = 0, camera facing XY), while the PROJECTOR
+// Z-up convention (CAD / textbook 立体几何): the projection plane
+// stays flush against the XZ plane (default azimuth = elevation =
+// 0, camera at -Y facing the XZ plane), so on screen X points
+// right, Z points up, and Y points INTO the scene. The PROJECTOR
 // direction is tilted — the 斜二测 / cabinet setup of textbook
-// 直观图:
-//   * everything in the XY plane (grid, 2D shapes, a cube's front
+// 直观图 (x horizontal, z vertical, y receding up-right at 45°
+// with 0.5 foreshortening):
+//   * everything in the XZ plane (grid, 2D shapes, a cube's front
 //     face) projects undistorted: a square stays a true square;
-//   * depth recedes to the upper-right at 45° with 0.5
+//   * depth (+Y) recedes to the upper-right at 45° with 0.5
 //     foreshortening (√2/4 ≈ 0.3536 shear per screen axis);
 //   * an axis-aligned cube shows front + top + right, with
 //     left / back / bottom hidden (dashed).
@@ -22,8 +25,9 @@ public:
     // that depth BEHIND the screen plane (zs < 0) shifts up-right.
     static constexpr float OBLIQUE_SHEAR = -0.35355339059327373f;
 
-    float azimuth = 0;      // horizontal angle
-    float elevation = 0;    // vertical angle
+    float azimuth = 0;      // rotation about the world Z (up) axis;
+                            // 0 = camera at -Y, facing the XZ plane
+    float elevation = 0;    // angle above the XZ plane (+ = up)
     float distance = 15.0f; // distance from origin
     float frustumSize = 20.0f;
     float aspect = 1.0f;
@@ -42,12 +46,14 @@ public:
     }
 
     Vec3 getPosition() const {
+        // Z-up spherical: azimuth spins about the world Z axis
+        // (0 → camera at -Y), elevation lifts towards +Z.
         float ca = std::cos(azimuth), sa = std::sin(azimuth);
         float ce = std::cos(elevation), se = std::sin(elevation);
         return {
             target.x + distance * sa * ce,
-            target.y + distance * se,
-            target.z + distance * ca * ce
+            target.y - distance * ca * ce,
+            target.z + distance * se
         };
     }
 
@@ -58,10 +64,11 @@ public:
         return (target - getPosition()).normalized();
     }
 
-    // Get right vector (perpendicular to frame forward, in screen plane)
+    // Get right vector (perpendicular to frame forward, in screen plane).
+    // World-up reference is +Z (the vertical axis of the scene).
     Vec3 getRight() const {
         Vec3 ff = getFrameForward();
-        Vec3 up = {0, 1, 0};
+        Vec3 up = {0, 0, 1};
         return ff.cross(up).normalized();
     }
 
@@ -118,7 +125,8 @@ public:
 
     // Screen-to-world: point on the screen plane (through target) that
     // projects to this pixel. Points of the screen plane are the fixed
-    // points of the oblique map, so this is exact for z=0 content.
+    // points of the oblique map, so this is exact for work-plane
+    // (y = 0, XZ) content.
     Vec3 screenToWorld(float sx, float sy, int screenW, int screenH) const {
         float ndcX = (2.0f * sx / screenW) - 1.0f;
         float ndcY = 1.0f - (2.0f * sy / screenH);

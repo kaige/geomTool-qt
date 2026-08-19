@@ -20,7 +20,7 @@ void CircularArcTool::deactivate() {
 }
 
 void CircularArcTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
-    Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     auto snapResult = cv->snapManager->findSnapPoint(worldPos);
     Vec3 snappedPos = snapResult.snappedPosition;
 
@@ -48,7 +48,7 @@ void CircularArcTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, Canva
 }
 
 void CircularArcTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
-    Vec3 worldPos = cv->screenToWorldOnZ0Plane(pos.x(), pos.y());
+    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
     auto snapResult = cv->snapManager->findSnapPoint(worldPos);
     Vec3 snappedPos = snapResult.snappedPosition;
 
@@ -104,13 +104,13 @@ std::vector<Vec3> CircularArcTool::generateArcPoints(Vec3 start, Vec3 end, Vec3 
     std::vector<Vec3> points;
     Vec3 center = calculateArcCenter(start, end, arc);
     float radius = start.distanceTo(center);
-    float startAngle = std::atan2(start.y - center.y, start.x - center.x);
-    float endAngle = std::atan2(end.y - center.y, end.x - center.x);
+    float startAngle = std::atan2(start.z - center.z, start.x - center.x);
+    float endAngle = std::atan2(end.z - center.z, end.x - center.x);
 
-    // Determine direction using cross product
-    Vec3 v1 = {start.x - center.x, start.y - center.y, 0};
-    Vec3 v2 = {arc.x - center.x, arc.y - center.y, 0};
-    float cross = v1.x * v2.y - v1.y * v2.x;
+    // Determine direction using cross product in the XZ work plane
+    Vec3 v1 = {start.x - center.x, 0, start.z - center.z};
+    Vec3 v2 = {arc.x - center.x, 0, arc.z - center.z};
+    float cross = v1.x * v2.z - v1.z * v2.x;
     bool clockwise = cross < 0;
 
     float angleDiff = endAngle - startAngle;
@@ -126,65 +126,66 @@ std::vector<Vec3> CircularArcTool::generateArcPoints(Vec3 start, Vec3 end, Vec3 
         float angle = startAngle + angleStep * i;
         points.push_back({
             center.x + radius * std::cos(angle),
-            center.y + radius * std::sin(angle),
-            0
+            0,
+            center.z + radius * std::sin(angle)
         });
     }
     return points;
 }
 
 Vec3 CircularArcTool::calculateArcCenter(Vec3 start, Vec3 end, Vec3 arc) {
-    float ax = start.x, ay = start.y;
-    float bx = arc.x, by = arc.y;
-    float cx = end.x, cy = end.y;
+    // 2D calculation in the y=0 XZ work plane (planar pair: x, z)
+    float ax = start.x, az = start.z;
+    float bx = arc.x, bz = arc.z;
+    float cx = end.x, cz = end.z;
 
     float midABx = (ax + bx) / 2;
-    float midABy = (ay + by) / 2;
+    float midABz = (az + bz) / 2;
     float midBCx = (bx + cx) / 2;
-    float midBCy = (by + cy) / 2;
+    float midBCz = (bz + cz) / 2;
 
-    float centerX, centerY;
+    float centerX, centerZ;
 
     if (std::abs(bx - ax) < 1e-10f && std::abs(cx - bx) < 1e-10f) {
         centerX = (ax + cx) / 2;
-        centerY = (midABy + midBCy) / 2;
+        centerZ = (midABz + midBCz) / 2;
     } else if (std::abs(bx - ax) < 1e-10f) {
         centerX = ax;
-        float perpSlopeBC = -(cx - bx) / (cy - by);
-        centerY = midBCy + perpSlopeBC * (centerX - midBCx);
+        float perpSlopeBC = -(cx - bx) / (cz - bz);
+        centerZ = midBCz + perpSlopeBC * (centerX - midBCx);
     } else if (std::abs(cx - bx) < 1e-10f) {
         centerX = cx;
-        float perpSlopeAB = -(bx - ax) / (by - ay);
-        centerY = midABy + perpSlopeAB * (centerX - midABx);
+        float perpSlopeAB = -(bx - ax) / (bz - az);
+        centerZ = midABz + perpSlopeAB * (centerX - midABx);
     } else {
-        float slopeAB = (by - ay) / (bx - ax);
-        float slopeBC = (cy - by) / (cx - bx);
+        float slopeAB = (bz - az) / (bx - ax);
+        float slopeBC = (cz - bz) / (cx - bx);
         if (std::abs(slopeAB - slopeBC) < 1e-10f) {
-            float radius = std::sqrt((cx-ax)*(cx-ax) + (cy-ay)*(cy-ay)) / 2;
-            float angle = std::atan2(cy - ay, cx - ax);
+            float radius = std::sqrt((cx-ax)*(cx-ax) + (cz-az)*(cz-az)) / 2;
+            float angle = std::atan2(cz - az, cx - ax);
             centerX = (ax + cx) / 2 - radius * std::sin(angle);
-            centerY = (ay + cy) / 2 + radius * std::cos(angle);
+            centerZ = (az + cz) / 2 + radius * std::cos(angle);
         } else {
-            float perpSlopeAB = -(bx - ax) / (by - ay);
-            float perpSlopeBC = -(cx - bx) / (cy - by);
-            centerX = (perpSlopeAB * midABx - perpSlopeBC * midBCx + midBCy - midABy) / (perpSlopeAB - perpSlopeBC);
-            centerY = perpSlopeAB * (centerX - midABx) + midABy;
+            float perpSlopeAB = -(bx - ax) / (bz - az);
+            float perpSlopeBC = -(cx - bx) / (cz - bz);
+            centerX = (perpSlopeAB * midABx - perpSlopeBC * midBCx + midBCz - midABz) / (perpSlopeAB - perpSlopeBC);
+            centerZ = perpSlopeAB * (centerX - midABx) + midABz;
         }
     }
 
     // Fallback: circumcircle
-    float r1 = std::sqrt((ax-centerX)*(ax-centerX) + (ay-centerY)*(ay-centerY));
-    float r2 = std::sqrt((bx-centerX)*(bx-centerX) + (by-centerY)*(by-centerY));
-    float r3 = std::sqrt((cx-centerX)*(cx-centerX) + (cy-centerY)*(cy-centerY));
+    float r1 = std::sqrt((ax-centerX)*(ax-centerX) + (az-centerZ)*(az-centerZ));
+    float r2 = std::sqrt((bx-centerX)*(bx-centerX) + (bz-centerZ)*(bz-centerZ));
+    float r3 = std::sqrt((cx-centerX)*(cx-centerX) + (cz-centerZ)*(cz-centerZ));
     float maxR = std::max({r1, r2, r3});
     float minR = std::min({r1, r2, r3});
     if (maxR - minR > maxR * 0.5f) {
-        float d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+        float d = 2 * (ax * (bz - cz) + bx * (cz - az) + cx * (az - bz));
         if (std::abs(d) > 1e-10f) {
-            centerX = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / d;
-            centerY = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / d;
+            centerX = ((ax*ax+az*az)*(bz-cz) + (bx*bx+bz*bz)*(cz-az) + (cx*cx+cz*cz)*(az-bz)) / d;
+            centerZ = ((ax*ax+az*az)*(cx-bx) + (bx*bx+bz*bz)*(ax-cx) + (cx*cx+cz*cz)*(bx-ax)) / d;
         }
     }
 
-    return {centerX, centerY, 0};
+    return {centerX, 0, centerZ};
 }
