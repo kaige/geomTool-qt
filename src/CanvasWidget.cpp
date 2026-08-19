@@ -526,138 +526,142 @@ void CanvasWidget::drawShape(BaseShape* shape) {
             {{-1,0,0},{0,-1,0}}, {{1,0,0},{0,-1,0}}, {{1,0,0},{0,1,0}},  {{-1,0,0},{0,1,0}},
         };
 
-        // --- Cylinder rendering -------------------------------------
-        // Two different rules by region:
-        //  * Side (vertical): silhouette rule — only the two outline lines
-        //    where side visibility flips are drawn (solid).
-        //  * Top/bottom rims: cube-style — every segment is drawn; dashed
-        //    only when BOTH adjacent faces (cap + side quad) are back-facing,
-        //    solid as soon as either face is visible.
-        if (shape->type == ShapeType::Cylinder) {
-            // --- Textbook pose (axis vertical, default creation) ----------
-            // Draw exactly like the classroom 直观图: both caps as the
-            // textbook ellipse for a level circle under 斜二测 — HORIZONTAL
-            // major axis (long axis ∥ X, semi-major 1.06r), vertical minor
-            // axis (semi-minor 0.35r), the classic approximation (a strict
-            // oblique projection would tilt the major axis ~22°). Two
-            // vertical side silhouettes tangent at the major-axis ends;
-            // bottom cap's far (upper) arc dashed, everything else solid.
-            {
-                const Vec3 axisW = modelMat.transformDir({0, 0, 1});
-                const float sU = modelMat.transformDir({1, 0, 0}).length();
-                const float sV = modelMat.transformDir({0, 1, 0}).length();
-                const float sZ = std::abs(axisW.z);
-                if (sZ > 0.999f && std::abs(axisW.x) < 1e-3f
-                                 && std::abs(axisW.y) < 1e-3f
-                                 && std::abs(sU - sV) < 1e-3f) {
-                    const float pxPerUnit = height() / camera.frustumSize;
-                    const float R  = sU * pxPerUnit;   // cap radius, px
-                    const float ea = 1.06f * R;        // semi-major (level ∥ X)
-                    const float eb = 0.35f * R;        // semi-minor (vertical)
-                    const float halfHL = 1.0f;
-
-                    const QPointF cBot = worldToScreen(center - axisW * halfHL * sU);
-                    const QPointF cTop = worldToScreen(center + axisW * halfHL * sU);
-
-                    // Full top ellipse, solid.
-                    constexpr int eseg = 64;
-                    QPointF prev = { cTop.x() + ea, cTop.y() };
-                    for (int i = 1; i <= eseg; ++i) {
-                        float t = 2.0f * float(M_PI) * i / eseg;
-                        QPointF cur = { cTop.x() + ea * std::cos(t),
-                                        cTop.y() - eb * std::sin(t) };
-                        renderer.addLine(prev, cur, drawColor, hwWire, false);
-                        prev = cur;
-                    }
-                    // Bottom ellipse: near (lower) arc solid, far (upper)
-                    // arc dashed, with a continuous dash phase.
-                    prev = { cBot.x() + ea, cBot.y() };
-                    float dashOff = 0.0f;
-                    for (int i = 1; i <= eseg; ++i) {
-                        float t = 2.0f * float(M_PI) * i / eseg;
-                        QPointF cur = { cBot.x() + ea * std::cos(t),
-                                        cBot.y() - eb * std::sin(t) };
-                        bool hid = std::sin(t) > 0.0f;   // upper half = far side
-                        renderer.addLine(prev, cur,
-                                         hid ? hiddenColor : drawColor,
-                                         hwWire, hid, dashOff);
-                        float dx = cur.x() - prev.x(), dy = cur.y() - prev.y();
-                        dashOff += std::sqrt(dx * dx + dy * dy);
-                        prev = cur;
-                    }
-                    // Two vertical side silhouettes at the major-axis ends.
-                    renderer.addLine({ cBot.x() - ea, cBot.y() }, { cTop.x() - ea, cTop.y() },
-                                     drawColor, hwWire, false);
-                    renderer.addLine({ cBot.x() + ea, cBot.y() }, { cTop.x() + ea, cTop.y() },
-                                     drawColor, hwWire, false);
-                    return;
-                }
-            }
-
-            constexpr int seg = 16;
-            const float rTop = 1.0f, rBot = 1.0f, h = 2.0f;
-            const float halfH = h * 0.5f;
+        // --- Cylinder / Cone rendering (pose-blended) -----------------
+        // One unified algorithm for every pose. Each cap circle is drawn as
+        // the image of the unit circle under a 2×2 screen matrix E — any
+        // linear image of a circle is an exact ellipse:
+        //   * E_strict — the true 斜二测 projection of the circle (linear
+        //     part of Camera::project: frame axes + oblique shear). Exact
+        //     for every pose; at the default view a level circle comes out
+        //     with semi-axes 1.068r/0.331r but the major axis tilted ~7°.
+        //   * E_textbook — the classroom 直观图 convention for level
+        //     circles: horizontal major axis, semi-axes 1.06r / 0.35r.
+        // They are blended by t = tAxis·tCam (smoothstep of axis
+        // verticality × camera frontalness, zero when tilted >15°, orbited
+        // >18°, or non-uniformly scaled), damped per frame
+        // (shape->poseBlend, ~200 ms) so pose jumps MORPH instead of
+        // snapping. Silhouettes / cone generators are solved in CLOSED
+        // FORM against the blended ellipse, so they stay exactly tangent
+        // at every t; per-segment dash rules blend the strict adjacency
+        // test with the textbook "far half of the drawn ellipse" split.
+        if (shape->type == ShapeType::Cylinder || shape->type == ShapeType::Cone) {
+            const bool isCone = (shape->type == ShapeType::Cone);
             const Vec3 fwd = forward;
+            const Vec3 ff  = camera.getFrameForward();
+            const Vec3 uW = modelMat.transformDir({1, 0, 0});
+            const Vec3 vW = modelMat.transformDir({0, 1, 0});
+            const Vec3 aW = modelMat.transformDir({0, 0, 1});
+            const float sU = uW.length(), sV = vW.length();
+            if (sU < 1e-6f || sV < 1e-6f || aW.length() < 1e-6f) return;
+            const Vec3 uN = uW * (1.0f / sU);
+            const Vec3 vN = vW * (1.0f / sV);
+            const Vec3 aN = aW.normalized();
+            const float ppu = height() / camera.frustumSize;
 
-            // Cylinder local axes in world space (rotation only; uniform
-            // scale leaves directions valid). Central axis = local Z.
-            const float A = modelMat.transformDir({1, 0, 0}).dot(fwd); // local X
-            const float B = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y
-            const float C = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z (axis)
+            // Linear part of the strict projection, as SCREEN-pixel deltas
+            // (y down — hence the negated up component).
+            const float S = Camera::OBLIQUE_SHEAR;
+            auto J = [&](const Vec3& w) {
+                const float zs = -w.dot(ff);
+                return QPointF((w.dot(camera.getRight()) + S * zs) * ppu,
+                              -(w.dot(camera.getUp())    + S * zs) * ppu);
+            };
 
-            // Side face with outward normal n(a) = cos(a)*X + sin(a)*Y is
-            // front-facing (visible) iff n·fwd < 0.
+            // Cap centers (px). For the cone, cTop IS the apex point.
+            const QPointF cBot = worldToScreen(modelMat.transformPoint({0, 0, -1}));
+            const QPointF cTop = worldToScreen(modelMat.transformPoint({0, 0,  1}));
+
+            // ---- pose blend factor ------------------------------------
+            auto smoothstep = [](float e0, float e1, float x) {
+                float u = clampf((x - e0) / (e1 - e0), 0.0f, 1.0f);
+                return u * u * (3.0f - 2.0f * u);
+            };
+            const float tAxis = smoothstep(0.966f, 1.0f, std::abs(aN.z))    // ≤15° tilt
+                              * (1.0f - smoothstep(0.01f, 0.05f,            // uniform scale
+                                     std::abs(sU - sV) / sU));
+            const float tCam  = smoothstep(0.951f, 1.0f, ff.y);             // ≤18° orbit
+            const float tTgt  = tAxis * tCam;
+            if (shape->poseBlend < 0.0f)        shape->poseBlend = tTgt;    // snap, 1st frame
+            else shape->poseBlend += (tTgt - shape->poseBlend) * 0.25f;     // frame damping
+            const float t = shape->poseBlend;
+            if (std::abs(shape->poseBlend - tTgt) > 0.01f) update();        // settle morph
+
+            // Blended generator columns: screen image of (cos a, sin a).
+            // J already converts to px, so the strict columns are J(û)·sU
+            // (NOT ·rPx — that would double-apply the px scale); the
+            // textbook columns are the semi-axes 1.06r / 0.35r in px.
+            const float rPx = sU * ppu;
+            const QPointF b1 = J(uN) * (sU * (1.0f - t)) + QPointF(1.06f * rPx * t, 0.0f);
+            const QPointF b2 = J(vN) * (sV * (1.0f - t)) + QPointF(0.0f, -0.35f * rPx * t);
+            auto P = [&](const QPointF& c, float a) {
+                return QPointF(c.x() + b1.x() * std::cos(a) + b2.x() * std::sin(a),
+                               c.y() + b1.y() * std::cos(a) + b2.y() * std::sin(a));
+            };
+
+            // ---- strict facing tests (continuous in pose) --------------
+            const float A = fwd.dot(uN), B = fwd.dot(vN), C = fwd.dot(aN);
+            // Cone side outward normal ∝ (h cos a, h sin a, r) with h=2, r=1;
+            // cylinder side normal = (cos a, sin a, 0). Visible when f·n < 0.
             auto sideVisible = [&](float a) {
-                return std::cos(a) * A + std::sin(a) * B < 0.0f;
+                const float m = A * std::cos(a) + B * std::sin(a);
+                return isCone ? (2.0f * m + C < 0.0f) : (m < 0.0f);
             };
-            const bool topVis = (C < 0.0f);  // top cap, outward normal +Z
-            const bool botVis = (C > 0.0f);  // bottom cap, outward normal -Z
+            const bool topFar = (C > 0.0f);   // +axis cap faces away
+            const bool botFar = (C < 0.0f);   // −axis cap faces away
 
-            auto localPt = [&](float a, float z, float r) {
-                return modelMat.transformPoint({r * std::cos(a), r * std::sin(a), z});
+            // ---- cap rims ----------------------------------------------
+            constexpr int eseg = 64;
+            auto drawRim = [&](const QPointF& c, bool capFar) {
+                QPointF prev = P(c, 0.0f);
+                float dashOff = 0.0f;
+                for (int i = 1; i <= eseg; ++i) {
+                    const float a2 = 2.0f * float(M_PI) * i / eseg;
+                    const float am = a2 - float(M_PI) / eseg;
+                    QPointF cur = P(c, a2);
+                    float score = (1.0f - t) * ((capFar && !sideVisible(am)) ? 1.0f : 0.0f)
+                                +        t  * ((capFar && std::sin(am) > 0.0f) ? 1.0f : 0.0f);
+                    bool hid = score > 0.5f;
+                    renderer.addLine(prev, cur, hid ? hiddenColor : drawColor,
+                                     hwWire, hid, dashOff);
+                    float dx = cur.x() - prev.x(), dy = cur.y() - prev.y();
+                    dashOff += std::sqrt(dx * dx + dy * dy);
+                    prev = cur;
+                }
             };
+            drawRim(cBot, botFar);
 
-            // Top & bottom rim segments: cube-style. A segment is hidden
-            // (dashed) iff both its adjacent faces — the cap and the side
-            // quad — are back-facing; otherwise solid. The dash phase is
-            // continuous around each rim (as on the sphere equator) so a
-            // small cylinder's rim does not blur into a solid ring.
-            QPointF prevTop = worldToScreen(localPt(0.0f,  halfH, rTop));
-            QPointF prevBot = worldToScreen(localPt(0.0f, -halfH, rBot));
-            float dashOffTop = 0.0f, dashOffBot = 0.0f;
-            for (int i = 0; i < seg; ++i) {
-                float a2 = 2.0f * M_PI * (i + 1) / seg;
-                bool sv = sideVisible(2.0f * M_PI * (i + 0.5f) / seg);
-
-                QPointF curTop = worldToScreen(localPt(a2,  halfH, rTop));
-                bool topHidden = !topVis && !sv;
-                renderer.addLine(prevTop, curTop,
-                                 topHidden ? hiddenColor : drawColor, hwWire,
-                                 topHidden, dashOffTop);
-                float dtx = curTop.x() - prevTop.x(), dty = curTop.y() - prevTop.y();
-                dashOffTop += std::sqrt(dtx * dtx + dty * dty);
-                prevTop = curTop;
-
-                QPointF curBot = worldToScreen(localPt(a2, -halfH, rBot));
-                bool botHidden = !botVis && !sv;
-                renderer.addLine(prevBot, curBot,
-                                 botHidden ? hiddenColor : drawColor, hwWire,
-                                 botHidden, dashOffBot);
-                float dbx = curBot.x() - prevBot.x(), dby = curBot.y() - prevBot.y();
-                dashOffBot += std::sqrt(dbx * dbx + dby * dby);
-                prevBot = curBot;
+            if (isCone) {
+                // Tangent generators apex → blended base ellipse, closed
+                // form: with z = E⁻¹(apex − c), the tangent parameters are
+                // a = atan2(z.y, z.x) ± acos(1/|z|)  (apex outside ⇒ |z|>1).
+                const float det = b1.x() * b2.y() - b1.y() * b2.x();
+                if (std::abs(det) > 1e-6f * rPx * rPx) {
+                    const QPointF v = cTop - cBot;
+                    const QPointF z(( b2.y() * v.x() - b2.x() * v.y()) / det,
+                                    (-b1.y() * v.x() + b1.x() * v.y()) / det);
+                    const float zz = std::sqrt(z.x() * z.x() + z.y() * z.y());
+                    if (zz > 1.0001f) {
+                        const float del = std::atan2(z.y(), z.x());
+                        const float w   = std::acos(1.0f / zz);
+                        for (float a : { del - w, del + w })
+                            renderer.addLine(cTop, P(cBot, a), drawColor, hwWire, false);
+                    }
+                }
+                return;
             }
 
-            // Two vertical silhouette edges where side visibility flips:
-            //   cos(a)*A + sin(a)*B = 0  =>  a = atan2(B, A) ± π/2.
-            // Skipped when looking straight down the axis (no side silhouette).
-            if (A * A + B * B > 1e-6f) {
-                float phi = std::atan2(B, A);
-                float sil[2] = { phi + float(M_PI_2), phi - float(M_PI_2) };
-                for (float a : sil) {
-                    Vec3 p1 = localPt(a, -halfH, rBot), p2 = localPt(a, halfH, rTop);
-                    renderer.addLine(worldToScreen(p1), worldToScreen(p2), drawColor, hwWire, false);
-                }
+            drawRim(cTop, topFar);
+
+            // ---- cylinder side silhouettes ------------------------------
+            // Lines parallel to the on-screen axis d, tangent to the blended
+            // ellipse: −sin a·cross(b1,d) + cos a·cross(b2,d) = 0.
+            const QPointF d(cTop.x() - cBot.x(), cTop.y() - cBot.y());
+            const float c1 = b1.x() * d.y() - b1.y() * d.x();
+            const float c2 = b2.x() * d.y() - b2.y() * d.x();
+            if (c1 * c1 + c2 * c2 > 1e-12f * rPx * rPx) {
+                const float a0 = std::atan2(c2, c1);
+                for (float a : { a0, a0 + float(M_PI) })
+                    renderer.addLine(P(cBot, a), P(cTop, a), drawColor, hwWire, false);
             }
             return;
         }
@@ -720,135 +724,6 @@ void CanvasWidget::drawShape(BaseShape* shape) {
                 float dy = curRing.y() - prevRing.y();
                 dashOff += std::sqrt(dx * dx + dy * dy);
                 prevRing = curRing;
-            }
-            return;
-        }
-
-        // --- Cone rendering -----------------------------------------
-        // Mirrors the cylinder/sphere rules:
-        //  * Side silhouette: the two generators (apex -> base) where the
-        //    side surface flips front/back visibility — drawn solid. This
-        //    is the cone analogue of the cylinder's side silhouette lines
-        //    and the sphere's outline circle.
-        //  * Base rim: cube/cylinder-rim style — a segment is dashed when
-        //    BOTH adjacent faces (base cap + side quad) are back-facing,
-        //    solid as soon as either is visible. Dash phase is continuous
-        //    around the rim (as on the sphere equator) so a small cone's
-        //    base ring does not blur into a solid line.
-        if (shape->type == ShapeType::Cone) {
-            // --- Textbook pose (axis vertical, default creation) ----------
-            // Same classroom 直观图 treatment as the cylinder: base as the
-            // textbook level-circle ellipse (horizontal major axis, semi
-            // 1.06r / 0.35r), apex directly above the base center, and two
-            // side generators TANGENT to the base ellipse (tangent points
-            // from the apex: for ellipse x²/a² + y²/b² = 1 and apex at
-            // height D on the axis, the tangent points sit at
-            // y = b²/D, x = ±a·√(1−b²/D²)). Far (upper) base arc dashed.
-            {
-                const Vec3 axisW = modelMat.transformDir({0, 0, 1});
-                const float sU = modelMat.transformDir({1, 0, 0}).length();
-                const float sV = modelMat.transformDir({0, 1, 0}).length();
-                if (std::abs(axisW.z) > 0.999f && std::abs(axisW.x) < 1e-3f
-                                                 && std::abs(axisW.y) < 1e-3f
-                                                 && std::abs(sU - sV) < 1e-3f) {
-                    const float pxPerUnit = height() / camera.frustumSize;
-                    const float R  = sU * pxPerUnit;
-                    const float ea = 1.06f * R;
-                    const float eb = 0.35f * R;
-
-                    const QPointF cBot = worldToScreen(center - axisW * sU);
-                    const QPointF apex = worldToScreen(center + axisW * sU);
-
-                    constexpr int eseg = 64;
-                    QPointF prev = { cBot.x() + ea, cBot.y() };
-                    float dashOff = 0.0f;
-                    for (int i = 1; i <= eseg; ++i) {
-                        float t = 2.0f * float(M_PI) * i / eseg;
-                        QPointF cur = { cBot.x() + ea * std::cos(t),
-                                        cBot.y() - eb * std::sin(t) };
-                        bool hid = std::sin(t) > 0.0f;   // upper half = far side
-                        renderer.addLine(prev, cur,
-                                         hid ? hiddenColor : drawColor,
-                                         hwWire, hid, dashOff);
-                        float dx = cur.x() - prev.x(), dy = cur.y() - prev.y();
-                        dashOff += std::sqrt(dx * dx + dy * dy);
-                        prev = cur;
-                    }
-                    // Tangent generators from the apex to the base ellipse.
-                    const float D = cBot.y() - apex.y();   // apex height above base center, px
-                    if (D > eb) {
-                        const float yT = eb * eb / D;
-                        const float xT = ea * std::sqrt(1.0f - (eb * eb) / (D * D));
-                        renderer.addLine(apex, { cBot.x() - xT, cBot.y() - yT },
-                                         drawColor, hwWire, false);
-                        renderer.addLine(apex, { cBot.x() + xT, cBot.y() - yT },
-                                         drawColor, hwWire, false);
-                    }
-                    return;
-                }
-            }
-
-            constexpr int seg = 48;
-            const float r = 1.0f, h = 2.0f;
-            const float halfH = h * 0.5f;
-            const Vec3 fwd = forward;
-
-            // Cone local axes projected onto the view direction (rotation
-            // only; uniform scale leaves directions valid). Central axis =
-            // local Z.
-            const float A = modelMat.transformDir({1, 0, 0}).dot(fwd); // local X
-            const float B = modelMat.transformDir({0, 1, 0}).dot(fwd); // local Y
-            const float C = modelMat.transformDir({0, 0, 1}).dot(fwd); // local Z (axis)
-
-            // The side outward normal at generator angle a is proportional
-            // to (h cos a, h sin a, r); its dot with fwd is
-            // h (cos a A + sin a B) + r C. Front-facing (visible) when < 0.
-            auto sideVisible = [&](float a) {
-                return h * (std::cos(a) * A + std::sin(a) * B) + r * C < 0.0f;
-            };
-            const bool baseVis = (C > 0.0f);  // base cap, outward normal -Z
-
-            auto localPt = [&](float a, float z, float rad) {
-                return modelMat.transformPoint({rad * std::cos(a), rad * std::sin(a), z});
-            };
-
-            // Base rim: cylinder-rim rule with a continuous dash phase.
-            QPointF prevRing = worldToScreen(localPt(0.0f, -halfH, r));
-            float dashOff = 0.0f;
-            for (int i = 0; i < seg; ++i) {
-                float a2 = 2.0f * M_PI * (i + 1) / seg;
-                QPointF curRing = worldToScreen(localPt(a2, -halfH, r));
-                bool sv = sideVisible(2.0f * M_PI * (i + 0.5f) / seg);
-                bool hidden = !baseVis && !sv;
-                renderer.addLine(prevRing, curRing,
-                                 hidden ? hiddenColor : drawColor, hwWire,
-                                 hidden, dashOff);
-                float dx = curRing.x() - prevRing.x();
-                float dy = curRing.y() - prevRing.y();
-                dashOff += std::sqrt(dx * dx + dy * dy);
-                prevRing = curRing;
-            }
-
-            // Two side silhouette generators where the side flips visibility:
-            //   h (cos a A + sin a B) + r C = 0  =>  cos a A + sin a B = -r C / h.
-            // With R = sqrt(A²+B²), phi = atan2(B,A): a = phi ± acos((-rC/h)/R).
-            // No generator when looking along the axis (R≈0) or when the side
-            // is uniformly front/back (|ratio|>1); the base ring is then the
-            // silhouette, which the rim loop already draws.
-            const float R = std::sqrt(A * A + B * B);
-            if (R > 1e-6f) {
-                float ratio = (-r * C / h) / R;
-                if (std::fabs(ratio) <= 1.0f) {
-                    float phi = std::atan2(B, A);
-                    float dlt = std::acos(ratio);
-                    float sil[2] = { phi + dlt, phi - dlt };
-                    Vec3 apex = localPt(0.0f, halfH, 0.0f);
-                    for (float a : sil) {
-                        Vec3 base = localPt(a, -halfH, r);
-                        renderer.addLine(worldToScreen(apex), worldToScreen(base),
-                                         drawColor, hwWire, false);
-                    }
-                }
             }
             return;
         }

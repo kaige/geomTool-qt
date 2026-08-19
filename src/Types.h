@@ -23,6 +23,10 @@ struct BaseShape {
     bool visible = true;
     bool hasChanged = false;
     bool hasSelectionChanged = false;
+    // Render-style blend for cylinder/cone caps (textbook 直观图 ellipse ↔
+    // strict oblique projection). −1 = unset (snap on first draw); otherwise
+    // damped toward the pose-driven target each painted frame.
+    float poseBlend = -1.0f;
 
     virtual ~BaseShape() = default;
 };

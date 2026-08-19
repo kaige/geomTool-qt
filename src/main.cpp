@@ -4,6 +4,7 @@
 #include <QFont>
 #include <QTimer>
 #include <QDebug>
+#include <cstdio>
 #include <cstring>
 #include "MainWindow.h"
 #include "CanvasWidget.h"
@@ -50,6 +51,18 @@ int main(int argc, char* argv[]) {
         if (g_canvas) {
             g_canvas->camera.frustumSize = 5.0f; // frame the shape; angles stay at the default frontal XZ view
             g_canvas->update();
+        }
+    }
+
+    // --rot rx,ry,rz: apply an initial rotation to the most recent shape
+    // (headless test hook for verifying non-default poses with --shot).
+    for (int i = 1; i < argc - 3; ++i) {
+        if (std::strcmp(argv[i], "--rot") == 0 && !g_store.shapes.empty()) {
+            float rx, ry, rz;
+            if (std::sscanf(argv[i + 1], "%f", &rx) == 1 &&
+                std::sscanf(argv[i + 2], "%f", &ry) == 1 &&
+                std::sscanf(argv[i + 3], "%f", &rz) == 1)
+                g_store.shapes.back()->rotation = {rx, ry, rz};
         }
     }
 
