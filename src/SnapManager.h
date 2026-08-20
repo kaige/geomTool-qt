@@ -1,89 +1,57 @@
 #pragma once
 #include "Math3D.h"
-#include "GeometryStore.h"
 #include "Types.h"
+#include <QPointF>
+
+class CanvasWidget;
 
 // ============================================================
-// SnapManager - Snap to endpoints, midpoints, arc centers
+// SnapManager - snap points for all drawing tools
+//
+// Snapping is measured in SCREEN space: each candidate point is
+// projected with the canvas camera and compared to the cursor in
+// pixels. Points that live off the y=0 work plane (e.g. the back
+// corners of a cube, a cone apex) snap just as naturally as
+// on-plane points — the cursor only has to be visually on top of
+// the point. This is the standard CAD behavior.
+//
+// Candidates:
+//   line segments : endpoints, midpoint
+//   arcs          : center, endpoints, chord midpoint
+//   circles       : center
+//   rect/tri/poly : corner vertices
+//   3D solids     : feature points (local space, transformed by
+//                   the shape's model matrix — see SnapManager.cpp):
+//     cube      8 corners
+//     cylinder  2 cap centers + 8 rim quadrant points
+//     cone      apex + base center + 4 rim quadrant points
+//     sphere    center + 2 poles
+//     torus     center + 4 outer + 4 inner equator points
 // ============================================================
 
 struct SnapPoint {
     Vec3 position;
-    int type; // 0=endpoint, 1=arc_center, 2=midpoint
+    int type; // 0=endpoint, 1=center, 2=midpoint, 3=vertex(feature point)
     std::string sourceShapeId;
 };
 
 class SnapManager {
 public:
-    float snapThreshold = 0.5f;
+    // Snap radius in screen pixels (feels the same at every zoom level).
+    float snapThreshold = 16.0f;
 
     struct SnapResult {
-        Vec3 snappedPosition;
+        Vec3 snappedPosition;   // the snapped 3D point, or the cursor's
+                                // work-plane position when nothing snapped
         bool snapped = false;
-        int snapType = -1; // -1 = none, 0=endpoint, 1=center, 2=midpoint
+        int snapType = -1; // -1 = none, 0=endpoint, 1=center, 2=midpoint, 3=vertex
     };
 
-    SnapResult findSnapPoint(const Vec3& worldPos) {
-        auto snapPoints = collectAllSnapPoints();
-        SnapResult result;
-        result.snappedPosition = worldPos;
-        result.snapped = false;
-
-        float minDist = snapThreshold;
-        const SnapPoint* closest = nullptr;
-
-        for (auto& sp : snapPoints) {
-            float dist = worldPos.distanceTo(sp.position);
-            if (dist < minDist) {
-                minDist = dist;
-                closest = &sp;
-            }
-        }
-
-        if (closest) {
-            result.snappedPosition = closest->position;
-            result.snapped = true;
-            result.snapType = closest->type;
-        }
-
-        return result;
-    }
+    // screenPos: cursor position in widget pixel coordinates.
+    SnapResult findSnapPoint(const QPointF& screenPos, CanvasWidget* cv);
 
     void resetVisualState() {}
 
 private:
-    std::vector<SnapPoint> collectAllSnapPoints() {
-        std::vector<SnapPoint> points;
-
-        for (auto& shape : g_store.shapes) {
-            if (shape->type == ShapeType::LineSegment) {
-                auto* ls = static_cast<LineSegmentShape*>(shape.get());
-                Vertex* sv = g_store.getVertexById(ls->startVertexId);
-                Vertex* ev = g_store.getVertexById(ls->endVertexId);
-                if (sv && ev) {
-                    points.push_back({sv->position, 0, ls->id});
-                    points.push_back({ev->position, 0, ls->id});
-                    Vec3 mid = {(sv->position.x + ev->position.x)/2,
-                                (sv->position.y + ev->position.y)/2,
-                                (sv->position.z + ev->position.z)/2};
-                    points.push_back({mid, 2, ls->id});
-                }
-            } else if (shape->type == ShapeType::CircularArc) {
-                auto* arc = static_cast<CircularArcShape*>(shape.get());
-                Vertex* cv = g_store.getVertexById(arc->centerVertexId);
-                Vertex* sv = g_store.getVertexById(arc->startVertexId);
-                Vertex* ev = g_store.getVertexById(arc->endVertexId);
-                if (cv && sv && ev) {
-                    points.push_back({cv->position, 1, arc->id});
-                    points.push_back({sv->position, 0, arc->id});
-                    points.push_back({ev->position, 0, arc->id});
-                    Vec3 mid = {(sv->position.x + ev->position.x)/2,
-                                (sv->position.y + ev->position.y)/2,
-                                (sv->position.z + ev->position.z)/2};
-                    points.push_back({mid, 2, arc->id});
-                }
-            }
-        }
-        return points;
-    }
+    std::vector<SnapPoint> collectAllSnapPoints();
 };

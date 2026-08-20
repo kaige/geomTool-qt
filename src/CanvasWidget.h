@@ -74,7 +74,7 @@ public:
     // Snap marker state
     bool snapVisible = false;
     Vec3 snapPosition;
-    int snapType = 0; // 0=endpoint, 1=center, 2=midpoint
+    int snapType = 0; // 0=endpoint, 1=center, 2=midpoint, 3=vertex(feature point)
 
     void clearTempLines() { tempLines.clear(); update(); }
 

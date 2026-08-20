@@ -964,6 +964,14 @@ void CanvasWidget::drawSnapMarker(QPainter& painter) {
                 << QPointF(pos.x(), pos.y() + s)
                 << QPointF(pos.x() - s, pos.y());
         painter.drawPolygon(diamond);
+    } else if (snapType == 3) {
+        // Vertex / solid feature point (cube corner, cone apex...) - triangle
+        painter.setBrush(Qt::NoBrush);
+        QPolygonF tri;
+        tri << QPointF(pos.x(), pos.y() - s)
+            << QPointF(pos.x() + s * 0.87f, pos.y() + s * 0.7f)
+            << QPointF(pos.x() - s * 0.87f, pos.y() + s * 0.7f);
+        painter.drawPolygon(tri);
     }
 }
 

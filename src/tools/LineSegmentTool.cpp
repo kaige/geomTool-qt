@@ -12,16 +12,14 @@ void LineSegmentTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, Canva
     mouseDownPos = pos;
     cv->setCanvasCursor(Qt::CrossCursor);
 
-    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
-    auto snapResult = cv->snapManager->findSnapPoint(worldPos);
+    auto snapResult = cv->snapManager->findSnapPoint(pos, cv);
     startPoint = snapResult.snappedPosition;
     hasStart = true;
     isDragging = false;
 }
 
 void LineSegmentTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
-    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
-    auto snapResult = cv->snapManager->findSnapPoint(worldPos);
+    auto snapResult = cv->snapManager->findSnapPoint(pos, cv);
 
     // Update snap marker
     cv->snapVisible = snapResult.snapped;
@@ -51,8 +49,7 @@ void LineSegmentTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, Canva
 void LineSegmentTool::onMouseUp(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
     if (!hasStart) return;
 
-    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
-    auto snapResult = cv->snapManager->findSnapPoint(worldPos);
+    auto snapResult = cv->snapManager->findSnapPoint(pos, cv);
     Vec3 snappedPos = snapResult.snappedPosition;
 
     qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - mouseDownTime;

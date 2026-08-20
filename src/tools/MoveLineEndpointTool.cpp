@@ -25,8 +25,7 @@ void MoveLineEndpointTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, 
     auto* ls = static_cast<LineSegmentShape*>(shape);
     std::string vertexId = isStart ? ls->startVertexId : ls->endVertexId;
 
-    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
-    auto snapResult = cv->snapManager->findSnapPoint(worldPos);
+    auto snapResult = cv->snapManager->findSnapPoint(pos, cv);
 
     // Snap positioning is used, but the green marker is NOT shown during drag
     // to keep the UI clean (consistent with arc endpoint dragging).

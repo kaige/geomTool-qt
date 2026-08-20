@@ -20,8 +20,7 @@ void CircularArcTool::deactivate() {
 }
 
 void CircularArcTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
-    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
-    auto snapResult = cv->snapManager->findSnapPoint(worldPos);
+    auto snapResult = cv->snapManager->findSnapPoint(pos, cv);
     Vec3 snappedPos = snapResult.snappedPosition;
 
     cv->snapVisible = snapResult.snapped;
@@ -48,8 +47,7 @@ void CircularArcTool::onMouseDown(QPointF pos, Qt::KeyboardModifiers mods, Canva
 }
 
 void CircularArcTool::onMouseMove(QPointF pos, Qt::KeyboardModifiers mods, CanvasWidget* cv) {
-    Vec3 worldPos = cv->screenToWorldOnWorkPlane(pos.x(), pos.y());
-    auto snapResult = cv->snapManager->findSnapPoint(worldPos);
+    auto snapResult = cv->snapManager->findSnapPoint(pos, cv);
     Vec3 snappedPos = snapResult.snappedPosition;
 
     cv->snapVisible = snapResult.snapped;
